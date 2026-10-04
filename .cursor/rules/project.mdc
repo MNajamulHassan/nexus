@@ -1,0 +1,67 @@
+---
+description: Nexus real-world GPS multiplayer game project rules
+alwaysApply: true
+---
+
+Read docs/PROJECT_BLUEPRINT.md before implementing major features.
+
+PROJECT
+- Flutter/Dart mobile application
+- Android MVP first
+- iOS later
+- Real-world GPS multiplayer game
+- Initial modes: Hide & Seek and Infected
+
+STACK
+- Flutter
+- Riverpod
+- GoRouter
+- Supabase
+- PostgreSQL/PostGIS
+- Supabase Realtime
+- Mapbox
+- Geolocator
+
+CORE RULES
+
+1. The server/database is authoritative for:
+   - roles
+   - catches
+   - infections
+   - score
+   - match state
+   - reveal state
+   - timers
+
+2. Never expose hidden precise player locations to unauthorized clients.
+
+3. Do not trust a client saying another player was caught.
+
+4. Do not hardcode the entire architecture around seeker/hider.
+   Game modes use generic players, roles, states and game events.
+
+5. Android MVP is the priority.
+
+6. Do not implement features outside PROJECT_BLUEPRINT.md unless explicitly requested.
+
+7. Prefer working simple code over premature abstraction.
+
+8. Never hardcode access tokens, secrets or service-role keys.
+
+9. Do not modify unrelated files.
+
+10. After every coding task run:
+
+flutter analyze
+
+11. After substantial Android changes also run:
+
+flutter build apk --debug
+
+12. If an API/package changed, inspect the installed/current package API instead of inventing outdated syntax.
+
+13. Report:
+- files changed
+- important architectural decisions
+- commands I must run manually
+- any errors remaining
