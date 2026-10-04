@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-class HomeScreen extends StatelessWidget {
+import '../../core/auth/identity_providers.dart';
+
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final identity = ref.watch(playerIdentityProvider).value;
+    final displayName = identity?.profile.displayName;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -22,7 +28,19 @@ class HomeScreen extends StatelessWidget {
                   letterSpacing: 6,
                 ),
               ),
-              const SizedBox(height: 48),
+              if (displayName != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  displayName,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                TextButton(
+                  onPressed: () => context.push('/choose-name'),
+                  child: const Text('Edit Name'),
+                ),
+              ],
+              const SizedBox(height: 32),
               FilledButton(
                 onPressed: () => context.push('/create-game'),
                 child: const Text('Create Game'),
