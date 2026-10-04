@@ -47,7 +47,7 @@ class HomeScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               OutlinedButton(
-                onPressed: () {},
+                onPressed: () => context.push('/join-game'),
                 child: const Text('Join Game'),
               ),
               const SizedBox(height: 16),

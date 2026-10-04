@@ -1,6 +1,7 @@
 import '../../models/game.dart';
 import '../../models/game_config.dart';
 import 'game_repository.dart';
+import 'join_code.dart';
 
 class LobbyService {
   const LobbyService(this._repository);
@@ -45,6 +46,17 @@ class LobbyService {
     }
 
     return loadLobby(game.id);
+  }
+
+  /// Calls join_game. Existing membership is success and returns that game id.
+  Future<String> joinLobby(String rawCode) async {
+    final invalid = JoinCode.validate(rawCode);
+    if (invalid != null) {
+      throw LobbyException(kind: LobbyErrorKind.validation, message: invalid);
+    }
+
+    final membership = await _repository.joinGame(JoinCode.normalize(rawCode));
+    return membership.gameId;
   }
 
   Future<LobbySnapshot> loadLobby(String gameId) async {

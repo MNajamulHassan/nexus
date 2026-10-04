@@ -131,7 +131,7 @@ class _LobbyBody extends StatelessWidget {
           ),
         const SizedBox(height: 16),
         Text(
-          'Waiting for players to join. Join-by-code and match start come next.',
+          'Waiting for players. Tap refresh to update the list.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       ],

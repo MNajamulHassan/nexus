@@ -59,6 +59,27 @@ class GameRepository {
     }
   }
 
+  Future<GamePlayerRecord> joinGame(String joinCode) async {
+    if (_client.auth.currentUser == null) {
+      throw const LobbyException(
+        kind: LobbyErrorKind.auth,
+        message: 'You are not signed in. Restart the app and try again.',
+      );
+    }
+
+    try {
+      final raw = await _client.rpc(
+        'join_game',
+        params: {'p_join_code': joinCode},
+      );
+      return GamePlayerRecord.fromRow(_asRow(raw, 'join_game'));
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _mapJoin(error);
+    }
+  }
+
   Future<void> cancelLobby(String gameId) async {
     try {
       await _client.rpc('cancel_lobby', params: {'p_game_id': gameId});
@@ -179,5 +200,47 @@ class GameRepository {
       );
     }
     return LobbyException(kind: kind, message: '$fallback $error');
+  }
+
+  LobbyException _mapJoin(Object error) {
+    if (error is SocketException || error is TimeoutException) {
+      return const LobbyException(
+        kind: LobbyErrorKind.network,
+        message: 'Network error. Check your connection and try again.',
+      );
+    }
+
+    if (error is PostgrestException) {
+      final detail = error.message.toLowerCase();
+      if (detail.contains('not authenticated') ||
+          detail.contains('profile required')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.auth,
+          message: 'You are not signed in. Restart the app and try again.',
+        );
+      }
+      if (detail.contains('not found')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.join,
+          message: 'No lobby uses that code.',
+        );
+      }
+      if (detail.contains('not joinable')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.join,
+          message: 'That lobby has already started.',
+        );
+      }
+      final message = error.message.trim();
+      return LobbyException(
+        kind: LobbyErrorKind.join,
+        message: message.isEmpty ? 'Could not join the lobby.' : message,
+      );
+    }
+
+    return LobbyException(
+      kind: LobbyErrorKind.join,
+      message: 'Could not join the lobby. $error',
+    );
   }
 }

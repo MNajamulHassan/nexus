@@ -110,7 +110,17 @@ class LobbySnapshot {
   final List<LobbyPlayer> players;
 }
 
-enum LobbyErrorKind { validation, create, zones, cancel, load, network, unknown }
+enum LobbyErrorKind {
+  validation,
+  create,
+  join,
+  zones,
+  cancel,
+  load,
+  auth,
+  network,
+  unknown,
+}
 
 class LobbyException implements Exception {
   const LobbyException({required this.kind, required this.message});
