@@ -10,11 +10,12 @@ class HomeScreen extends StatelessWidget {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
+          child: ListView(
             children: [
-              const Spacer(),
+              const SizedBox(height: 72),
               Text(
                 'NEXUS',
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.displaySmall?.copyWith(
                   color: Theme.of(context).colorScheme.primary,
                   fontWeight: FontWeight.w700,
@@ -41,7 +42,11 @@ class HomeScreen extends StatelessWidget {
                 onPressed: () => context.push('/map-test'),
                 child: const Text('Map Test'),
               ),
-              const Spacer(),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => context.push('/map-editor'),
+                child: const Text('Map Editor'),
+              ),
             ],
           ),
         ),
