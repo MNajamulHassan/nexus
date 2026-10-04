@@ -1,0 +1,147 @@
+import 'game_config.dart';
+
+class GameRecord {
+  const GameRecord({
+    required this.id,
+    required this.hostId,
+    required this.joinCode,
+    required this.mode,
+    required this.status,
+    required this.createdAt,
+    required this.hidingDurationSeconds,
+    required this.matchDurationSeconds,
+    required this.catchRadiusMeters,
+    required this.revealIntervalSeconds,
+    required this.revealDurationSeconds,
+    required this.tauntsEnabled,
+    this.startedAt,
+    this.endedAt,
+  });
+
+  final String id;
+  final String hostId;
+  final String joinCode;
+  final GameMode mode;
+  final String status;
+  final DateTime createdAt;
+  final DateTime? startedAt;
+  final DateTime? endedAt;
+  final int hidingDurationSeconds;
+  final int matchDurationSeconds;
+  final double catchRadiusMeters;
+  final int revealIntervalSeconds;
+  final int revealDurationSeconds;
+  final bool tauntsEnabled;
+
+  factory GameRecord.fromRow(Map<String, dynamic> row) {
+    final mode = GameConfig.modeFromWire(row['mode'] as String? ?? '');
+    if (mode == null) {
+      throw FormatException('Unknown game mode: ${row['mode']}');
+    }
+
+    return GameRecord(
+      id: row['id'] as String,
+      hostId: row['host_id'] as String,
+      joinCode: row['join_code'] as String,
+      mode: mode,
+      status: row['status'] as String,
+      createdAt: DateTime.parse(row['created_at'] as String),
+      startedAt: _optionalDate(row['started_at']),
+      endedAt: _optionalDate(row['ended_at']),
+      hidingDurationSeconds: _asInt(row['hiding_duration_seconds']),
+      matchDurationSeconds: _asInt(row['match_duration_seconds']),
+      catchRadiusMeters: _asDouble(row['catch_radius_meters']),
+      revealIntervalSeconds: _asInt(row['reveal_interval_seconds']),
+      revealDurationSeconds: _asInt(row['reveal_duration_seconds']),
+      tauntsEnabled: row['taunts_enabled'] as bool? ?? true,
+    );
+  }
+
+  String get modeLabel => GameConfig.modeDisplayName(mode);
+}
+
+class GamePlayerRecord {
+  const GamePlayerRecord({
+    required this.id,
+    required this.gameId,
+    required this.playerId,
+    required this.status,
+    required this.joinedAt,
+  });
+
+  final String id;
+  final String gameId;
+  final String playerId;
+  final String status;
+  final DateTime joinedAt;
+
+  factory GamePlayerRecord.fromRow(Map<String, dynamic> row) {
+    return GamePlayerRecord(
+      id: row['id'] as String,
+      gameId: row['game_id'] as String,
+      playerId: row['player_id'] as String,
+      status: row['status'] as String,
+      joinedAt: DateTime.parse(row['joined_at'] as String),
+    );
+  }
+}
+
+class LobbyPlayer {
+  const LobbyPlayer({
+    required this.player,
+    required this.displayName,
+    required this.isHost,
+  });
+
+  final GamePlayerRecord player;
+  final String displayName;
+  final bool isHost;
+}
+
+class LobbySnapshot {
+  const LobbySnapshot({
+    required this.game,
+    required this.hostName,
+    required this.players,
+  });
+
+  final GameRecord game;
+  final String hostName;
+  final List<LobbyPlayer> players;
+}
+
+enum LobbyErrorKind { validation, create, zones, cancel, load, network, unknown }
+
+class LobbyException implements Exception {
+  const LobbyException({required this.kind, required this.message});
+
+  final LobbyErrorKind kind;
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+DateTime? _optionalDate(Object? value) {
+  if (value == null) {
+    return null;
+  }
+  return DateTime.parse(value as String);
+}
+
+int _asInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.parse(value.toString());
+}
+
+double _asDouble(Object? value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.parse(value.toString());
+}

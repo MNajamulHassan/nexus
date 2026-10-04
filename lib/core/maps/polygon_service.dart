@@ -49,6 +49,19 @@ abstract final class PolygonService {
     );
   }
 
+  /// GeoJSON Polygon, longitude then latitude, closed ring.
+  static Map<String, dynamic> toGeoJsonPolygon(List<GeoPoint> vertices) {
+    return {
+      'type': 'Polygon',
+      'coordinates': [
+        [
+          for (final vertex in closedRing(vertices))
+            [vertex.longitude, vertex.latitude],
+        ],
+      ],
+    };
+  }
+
   /// Returns a human-readable error, or null when the draft can be confirmed.
   static String? validateForConfirm({
     required MapPolygon? playable,

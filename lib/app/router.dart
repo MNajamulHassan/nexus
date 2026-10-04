@@ -6,6 +6,7 @@ import '../core/auth/identity_providers.dart';
 import '../features/game_create/create_game_screen.dart';
 import '../features/gps_test/gps_test_screen.dart';
 import '../features/home/home_screen.dart';
+import '../features/lobby/lobby_screen.dart';
 import '../features/map/map_screen.dart';
 import '../features/map_editor/map_editor_screen.dart';
 import '../features/onboarding/boot_screen.dart';
@@ -70,6 +71,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/create-game',
         name: 'createGame',
         builder: (context, state) => const CreateGameScreen(),
+      ),
+      GoRoute(
+        path: '/lobby/:gameId',
+        name: 'lobby',
+        builder: (context, state) {
+          final gameId = state.pathParameters['gameId'] ?? '';
+          return LobbyScreen(gameId: gameId);
+        },
       ),
       GoRoute(
         path: '/map-editor',

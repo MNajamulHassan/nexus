@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
+import '../../core/game/game_providers.dart';
 import '../../core/maps/map_models.dart';
+import '../../models/game.dart';
 import '../../models/game_config.dart';
 
-class CreateGameScreen extends StatefulWidget {
+class CreateGameScreen extends ConsumerStatefulWidget {
   const CreateGameScreen({super.key});
 
   @override
-  State<CreateGameScreen> createState() => _CreateGameScreenState();
+  ConsumerState<CreateGameScreen> createState() => _CreateGameScreenState();
 }
 
-class _CreateGameScreenState extends State<CreateGameScreen> {
+class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
   final _matchDuration = TextEditingController(
     text: '${GameConfig.defaultMatchDurationSeconds}',
   );
@@ -34,6 +37,7 @@ class _CreateGameScreenState extends State<CreateGameScreen> {
   bool _tauntsEnabled = GameConfig.defaultTauntsEnabled;
   MapEditorResult? _mapResult;
   String? _status;
+  bool _creating = false;
 
   @override
   void dispose() {
@@ -69,36 +73,38 @@ class _CreateGameScreenState extends State<CreateGameScreen> {
     FocusScope.of(context).unfocus();
 
     final config = _tryBuildConfig();
-    if (config == null) {
+    if (config == null || _creating) {
       return;
     }
 
-    debugPrint(config.debugDump());
+    setState(() {
+      _creating = true;
+      _status = null;
+    });
 
-    if (!mounted) {
-      return;
+    try {
+      final lobby = await ref.read(lobbyServiceProvider).createLobby(config);
+      if (!mounted) {
+        return;
+      }
+      context.go('/lobby/${lobby.game.id}');
+    } on LobbyException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _creating = false;
+        _status = error.message;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _creating = false;
+        _status = 'Could not create the lobby. $error';
+      });
     }
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Lobby not created'),
-          content: SingleChildScrollView(
-            child: SelectableText(
-              'Validated GameConfig only. Nothing was written to Supabase.\n\n'
-              '${config.debugDump()}',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   GameConfig? _tryBuildConfig() {
@@ -225,7 +231,7 @@ class _CreateGameScreenState extends State<CreateGameScreen> {
           ),
           const SizedBox(height: 16),
           OutlinedButton(
-            onPressed: _selectPlayArea,
+            onPressed: _creating ? null : _selectPlayArea,
             child: const Text('SELECT PLAY AREA'),
           ),
           const SizedBox(height: 12),
@@ -241,8 +247,14 @@ class _CreateGameScreenState extends State<CreateGameScreen> {
           ],
           const SizedBox(height: 24),
           FilledButton(
-            onPressed: _createLobby,
-            child: const Text('CREATE LOBBY'),
+            onPressed: _creating ? null : _createLobby,
+            child: _creating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('CREATE LOBBY'),
           ),
         ],
       ),

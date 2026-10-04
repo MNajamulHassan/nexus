@@ -40,10 +40,40 @@ class GameConfig {
 
   String get modeLabel => modeDisplayName(mode);
 
+  String get modeWireValue => modeToWire(mode);
+
+  String? validateSelf() {
+    return validate(
+      mode: mode,
+      matchDurationSeconds: matchDurationSeconds,
+      hidingDurationSeconds: hidingDurationSeconds,
+      catchRadiusMeters: catchRadiusMeters,
+      revealIntervalSeconds: revealIntervalSeconds,
+      revealDurationSeconds: revealDurationSeconds,
+      playablePolygon: playablePolygon,
+      restrictedPolygons: restrictedPolygons,
+    );
+  }
+
   static String modeDisplayName(GameMode mode) {
     return switch (mode) {
       GameMode.hideAndSeek => 'Hide & Seek',
       GameMode.infected => 'Infected',
+    };
+  }
+
+  static String modeToWire(GameMode mode) {
+    return switch (mode) {
+      GameMode.hideAndSeek => 'hide_and_seek',
+      GameMode.infected => 'infected',
+    };
+  }
+
+  static GameMode? modeFromWire(String raw) {
+    return switch (raw) {
+      'hide_and_seek' => GameMode.hideAndSeek,
+      'infected' => GameMode.infected,
+      _ => null,
     };
   }
 
