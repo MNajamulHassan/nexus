@@ -10,5 +10,6 @@ void main() {
     expect(find.text('Create Game'), findsOneWidget);
     expect(find.text('Join Game'), findsOneWidget);
     expect(find.text('GPS Test'), findsOneWidget);
+    expect(find.text('Map Test'), findsOneWidget);
   });
 }

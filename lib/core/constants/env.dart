@@ -11,4 +11,6 @@ abstract final class AppEnv {
 
   static bool get hasSupabaseConfig =>
       supabaseUrl.isNotEmpty && supabasePublishableKey.isNotEmpty;
+
+  static bool get hasMapboxToken => mapboxAccessToken.isNotEmpty;
 }

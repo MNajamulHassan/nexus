@@ -36,6 +36,11 @@ class HomeScreen extends StatelessWidget {
                 onPressed: () => context.push('/gps-test'),
                 child: const Text('GPS Test'),
               ),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => context.push('/map-test'),
+                child: const Text('Map Test'),
+              ),
               const Spacer(),
             ],
           ),

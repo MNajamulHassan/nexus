@@ -2,11 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/location/location_models.dart';
-import '../../core/location/location_service.dart';
-
-final locationServiceProvider = Provider<LocationService>((ref) {
-  return const LocationService();
-});
+import '../../core/location/location_providers.dart';
 
 class GpsTestScreen extends ConsumerStatefulWidget {
   const GpsTestScreen({super.key});
