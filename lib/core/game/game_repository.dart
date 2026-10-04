@@ -7,6 +7,7 @@ import '../../models/game.dart';
 import '../../models/game_config.dart';
 import '../auth/auth_models.dart';
 import '../maps/polygon_service.dart';
+import 'lobby_realtime.dart';
 
 class GameRepository {
   const GameRepository(this._client);
@@ -80,6 +81,23 @@ class GameRepository {
     }
   }
 
+  Future<void> leaveGame(String gameId) async {
+    if (_client.auth.currentUser == null) {
+      throw const LobbyException(
+        kind: LobbyErrorKind.auth,
+        message: 'You are not signed in. Restart the app and try again.',
+      );
+    }
+
+    try {
+      await _client.rpc('leave_game', params: {'p_game_id': gameId});
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _mapLeave(error);
+    }
+  }
+
   Future<void> cancelLobby(String gameId) async {
     try {
       await _client.rpc('cancel_lobby', params: {'p_game_id': gameId});
@@ -96,13 +114,101 @@ class GameRepository {
 
   Future<GameRecord> fetchGame(String gameId) async {
     try {
-      final row = await _client.from('games').select().eq('id', gameId).single();
+      final row = await _client
+          .from('games')
+          .select()
+          .eq('id', gameId)
+          .maybeSingle();
+      if (row == null) {
+        throw const LobbyException(
+          kind: LobbyErrorKind.cancel,
+          message: 'This lobby was cancelled.',
+        );
+      }
       return GameRecord.fromRow(row);
     } on LobbyException {
       rethrow;
     } catch (error) {
       throw _map(error, LobbyErrorKind.load, 'Could not load the lobby.');
     }
+  }
+
+  Future<GameRecord?> fetchGameOrNull(String gameId) async {
+    try {
+      final row = await _client
+          .from('games')
+          .select()
+          .eq('id', gameId)
+          .maybeSingle();
+      if (row == null) {
+        return null;
+      }
+      return GameRecord.fromRow(row);
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.load, 'Could not load the lobby.');
+    }
+  }
+
+  LobbyRealtimeSubscription subscribeLobby({
+    required String gameId,
+    required void Function() onChange,
+    required void Function() onGameDeleted,
+    required void Function(LobbyRealtimeStatus status) onStatus,
+  }) {
+    final topic =
+        'lobby-$gameId-${DateTime.now().microsecondsSinceEpoch}';
+
+    final channel = _client
+        .channel(topic)
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'game_players',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'game_id',
+            value: gameId,
+          ),
+          callback: (_) => onChange(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'games',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'id',
+            value: gameId,
+          ),
+          callback: (payload) {
+            if (payload.eventType == PostgresChangeEvent.delete) {
+              onGameDeleted();
+            } else {
+              onChange();
+            }
+          },
+        );
+
+    onStatus(LobbyRealtimeStatus.connecting);
+    channel.subscribe((status, error) {
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          onStatus(LobbyRealtimeStatus.connected);
+        case RealtimeSubscribeStatus.timedOut:
+        case RealtimeSubscribeStatus.channelError:
+          onStatus(
+            error == null
+                ? LobbyRealtimeStatus.reconnecting
+                : LobbyRealtimeStatus.error,
+          );
+        case RealtimeSubscribeStatus.closed:
+          onStatus(LobbyRealtimeStatus.reconnecting);
+      }
+    });
+
+    return LobbyRealtimeSubscription(() => _client.removeChannel(channel));
   }
 
   Future<List<GamePlayerRecord>> fetchPlayers(String gameId) async {
@@ -241,6 +347,45 @@ class GameRepository {
     return LobbyException(
       kind: LobbyErrorKind.join,
       message: 'Could not join the lobby. $error',
+    );
+  }
+
+  LobbyException _mapLeave(Object error) {
+    if (error is SocketException || error is TimeoutException) {
+      return const LobbyException(
+        kind: LobbyErrorKind.network,
+        message: 'Network error. Check your connection and try again.',
+      );
+    }
+    if (error is PostgrestException) {
+      final detail = error.message.toLowerCase();
+      if (detail.contains('not authenticated')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.auth,
+          message: 'You are not signed in. Restart the app and try again.',
+        );
+      }
+      if (detail.contains('host cannot leave')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.cancel,
+          message: 'Hosts cancel the lobby instead of leaving.',
+        );
+      }
+      if (detail.contains('after the match')) {
+        return const LobbyException(
+          kind: LobbyErrorKind.join,
+          message: 'Cannot leave after the match has started.',
+        );
+      }
+      final message = error.message.trim();
+      return LobbyException(
+        kind: LobbyErrorKind.load,
+        message: message.isEmpty ? 'Could not leave the lobby.' : message,
+      );
+    }
+    return LobbyException(
+      kind: LobbyErrorKind.load,
+      message: 'Could not leave the lobby. $error',
     );
   }
 }

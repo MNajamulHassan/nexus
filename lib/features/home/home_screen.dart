@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/identity_providers.dart';
+import '../../core/game/game_providers.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -11,6 +12,14 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final identity = ref.watch(playerIdentityProvider).value;
     final displayName = identity?.profile.displayName;
+
+    ref.listen<String?>(homeNoticeProvider, (previous, next) {
+      if (next == null) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next)));
+      ref.read(homeNoticeProvider.notifier).clear();
+    });
 
     return Scaffold(
       body: SafeArea(

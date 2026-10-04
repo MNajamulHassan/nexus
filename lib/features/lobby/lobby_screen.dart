@@ -1,19 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
+import '../../core/auth/identity_providers.dart';
 import '../../core/game/game_providers.dart';
+import '../../core/game/lobby_controller.dart';
 import '../../models/game.dart';
 
-class LobbyScreen extends ConsumerWidget {
+class LobbyScreen extends ConsumerStatefulWidget {
   const LobbyScreen({super.key, required this.gameId});
 
   final String gameId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final lobby = ref.watch(lobbyProvider(gameId));
+  ConsumerState<LobbyScreen> createState() => _LobbyScreenState();
+}
+
+class _LobbyScreenState extends ConsumerState<LobbyScreen> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final lobby = ref.watch(lobbyControllerProvider(widget.gameId));
+    final userId = ref.watch(playerIdentityProvider).value?.userId;
+
+    ref.listen(lobbyControllerProvider(widget.gameId), (previous, next) {
+      final view = next.value;
+      if (view?.cancelled != true) {
+        return;
+      }
+      final cancelledByHost =
+          userId == null || view!.snapshot.game.hostId != userId;
+      if (cancelledByHost) {
+        ref
+            .read(homeNoticeProvider.notifier)
+            .show('The host cancelled this lobby.');
+      }
+      if (context.mounted) {
+        context.go('/');
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -21,7 +49,8 @@ class LobbyScreen extends ConsumerWidget {
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(lobbyProvider(gameId)),
+            onPressed: () =>
+                ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh(),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -30,26 +59,128 @@ class LobbyScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => _LobbyError(
           message: error.toString(),
-          onRetry: () => ref.invalidate(lobbyProvider(gameId)),
+          onRetry: () =>
+              ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh(),
         ),
-        data: (snapshot) => _LobbyBody(snapshot: snapshot),
+        data: (view) {
+          final isHost = userId != null && view.snapshot.game.hostId == userId;
+          return _LobbyBody(
+            view: view,
+            isHost: isHost,
+            busy: _busy,
+            onLeave: _busy ? null : () => _leave(),
+            onCancel: _busy ? null : () => _confirmCancel(),
+          );
+        },
       ),
     );
+  }
+
+  Future<void> _leave() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(lobbyControllerProvider(widget.gameId).notifier).leave();
+      if (!mounted) {
+        return;
+      }
+      context.go('/');
+    } on LobbyException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not leave. $error')));
+    }
+  }
+
+  Future<void> _confirmCancel() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Cancel lobby?'),
+          content: const Text(
+            'This removes the lobby for every player. This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep lobby'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Cancel lobby'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(lobbyControllerProvider(widget.gameId).notifier).cancel();
+      if (!mounted) {
+        return;
+      }
+      context.go('/');
+    } on LobbyException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not cancel. $error')));
+    }
   }
 }
 
 class _LobbyBody extends StatelessWidget {
-  const _LobbyBody({required this.snapshot});
+  const _LobbyBody({
+    required this.view,
+    required this.isHost,
+    required this.busy,
+    required this.onLeave,
+    required this.onCancel,
+  });
 
-  final LobbySnapshot snapshot;
+  final LobbyView view;
+  final bool isHost;
+  final bool busy;
+  final VoidCallback? onLeave;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
+    final snapshot = view.snapshot;
     final game = snapshot.game;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       children: [
+        _RealtimeBanner(status: view.realtime),
+        const SizedBox(height: 16),
         Text('Join code', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         Material(
@@ -89,7 +220,7 @@ class _LobbyBody extends StatelessWidget {
           children: [
             _SummaryRow(label: 'Game mode', value: game.modeLabel),
             _SummaryRow(label: 'Host', value: snapshot.hostName),
-            _SummaryRow(label: 'Status', value: 'Waiting for players'),
+            _SummaryRow(label: 'Status', value: game.status),
             _SummaryRow(
               label: 'Match duration',
               value: '${game.matchDurationSeconds}s',
@@ -127,13 +258,67 @@ class _LobbyBody extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.person_outline),
             title: Text(player.displayName),
-            subtitle: Text(player.isHost ? 'Host · ${player.player.status}' : player.player.status),
+            subtitle: Text(
+              player.isHost
+                  ? 'Host · ${player.player.status}'
+                  : player.player.status,
+            ),
           ),
         const SizedBox(height: 16),
         Text(
-          'Waiting for players. Tap refresh to update the list.',
+          'Waiting for players. The list updates live.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        const SizedBox(height: 24),
+        if (isHost)
+          OutlinedButton(
+            onPressed: onCancel,
+            child: busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Cancel Lobby'),
+          )
+        else
+          OutlinedButton(
+            onPressed: onLeave,
+            child: busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Leave Lobby'),
+          ),
+      ],
+    );
+  }
+}
+
+class _RealtimeBanner extends StatelessWidget {
+  const _RealtimeBanner({required this.status});
+
+  final LobbyRealtimeStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (status) {
+      LobbyRealtimeStatus.connected => ('Live', Colors.greenAccent),
+      LobbyRealtimeStatus.connecting => ('Connecting…', Colors.amberAccent),
+      LobbyRealtimeStatus.reconnecting => (
+        'Reconnecting…',
+        Colors.amberAccent,
+      ),
+      LobbyRealtimeStatus.error => ('Live updates paused', Colors.redAccent),
+    };
+
+    return Row(
+      children: [
+        Icon(Icons.circle, size: 10, color: color),
+        const SizedBox(width: 8),
+        Text(label, style: Theme.of(context).textTheme.labelMedium),
       ],
     );
   }
@@ -182,9 +367,9 @@ class _SummaryRow extends StatelessWidget {
           child: Text(
             value,
             textAlign: TextAlign.end,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
         ),
       ],

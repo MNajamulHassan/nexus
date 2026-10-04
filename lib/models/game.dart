@@ -110,6 +110,32 @@ class LobbySnapshot {
   final List<LobbyPlayer> players;
 }
 
+enum LobbyRealtimeStatus { connecting, connected, reconnecting, error }
+
+class LobbyView {
+  const LobbyView({
+    required this.snapshot,
+    required this.realtime,
+    this.cancelled = false,
+  });
+
+  final LobbySnapshot snapshot;
+  final LobbyRealtimeStatus realtime;
+  final bool cancelled;
+
+  LobbyView copyWith({
+    LobbySnapshot? snapshot,
+    LobbyRealtimeStatus? realtime,
+    bool? cancelled,
+  }) {
+    return LobbyView(
+      snapshot: snapshot ?? this.snapshot,
+      realtime: realtime ?? this.realtime,
+      cancelled: cancelled ?? this.cancelled,
+    );
+  }
+}
+
 enum LobbyErrorKind {
   validation,
   create,
