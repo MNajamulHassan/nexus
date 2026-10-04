@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -29,6 +30,11 @@ class HomeScreen extends StatelessWidget {
               OutlinedButton(
                 onPressed: () {},
                 child: const Text('Join Game'),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: () => context.push('/gps-test'),
+                child: const Text('GPS Test'),
               ),
               const Spacer(),
             ],

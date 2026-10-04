@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/gps_test/gps_test_screen.dart';
 import '../features/home/home_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -11,6 +12,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/gps-test',
+        name: 'gpsTest',
+        builder: (context, state) => const GpsTestScreen(),
       ),
     ],
   );
