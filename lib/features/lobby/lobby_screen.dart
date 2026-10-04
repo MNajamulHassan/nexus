@@ -305,13 +305,13 @@ class _RealtimeBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      LobbyRealtimeStatus.connected => ('Live', Colors.greenAccent),
+      LobbyRealtimeStatus.connected => ('Connected', Colors.greenAccent),
       LobbyRealtimeStatus.connecting => ('Connecting…', Colors.amberAccent),
       LobbyRealtimeStatus.reconnecting => (
-        'Reconnecting…',
+        'Reconnecting',
         Colors.amberAccent,
       ),
-      LobbyRealtimeStatus.error => ('Live updates paused', Colors.redAccent),
+      LobbyRealtimeStatus.error => ('Error', Colors.redAccent),
     };
 
     return Row(

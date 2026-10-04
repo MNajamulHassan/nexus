@@ -52,8 +52,8 @@ class LobbyController extends AsyncNotifier<LobbyView> {
           onStatus: _setRealtime,
         );
 
-    _safety ??= Timer.periodic(const Duration(seconds: 8), (_) {
-      unawaited(_checkStillExists());
+    _safety ??= Timer.periodic(const Duration(seconds: 4), (_) {
+      unawaited(_reload());
     });
   }
 
@@ -71,20 +71,6 @@ class LobbyController extends AsyncNotifier<LobbyView> {
     _debounce = Timer(const Duration(milliseconds: 200), () {
       unawaited(_reload());
     });
-  }
-
-  Future<void> _checkStillExists() async {
-    if (_disposed) {
-      return;
-    }
-    try {
-      final exists = await ref.read(lobbyServiceProvider).lobbyExists(gameId);
-      if (!exists) {
-        _markCancelled();
-      }
-    } catch (_) {
-      // Keep the last good snapshot; the next event or poll retries.
-    }
   }
 
   Future<void> _reload() async {

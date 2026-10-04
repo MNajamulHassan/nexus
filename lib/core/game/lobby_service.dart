@@ -67,10 +67,6 @@ class LobbyService {
     return _repository.cancelLobby(gameId);
   }
 
-  Future<bool> lobbyExists(String gameId) async {
-    return await _repository.fetchGameOrNull(gameId) != null;
-  }
-
   Future<LobbySnapshot> loadLobby(String gameId) async {
     final game = await _repository.fetchGame(gameId);
     final players = await _repository.fetchPlayers(gameId);

@@ -10,9 +10,12 @@ import '../maps/polygon_service.dart';
 import 'lobby_realtime.dart';
 
 class GameRepository {
-  const GameRepository(this._client);
+  GameRepository(this._client);
 
   final SupabaseClient _client;
+  final Map<String, RealtimeChannel> _lobbyChannels = {};
+
+  static String lobbyChannelName(String gameId) => 'lobby:$gameId';
 
   Future<GameRecord> createGame(GameConfig config) async {
     try {
@@ -73,7 +76,9 @@ class GameRepository {
         'join_game',
         params: {'p_join_code': joinCode},
       );
-      return GamePlayerRecord.fromRow(_asRow(raw, 'join_game'));
+      final membership = GamePlayerRecord.fromRow(_asRow(raw, 'join_game'));
+      await _broadcastLobbyChanged(membership.gameId, 'joined');
+      return membership;
     } on LobbyException {
       rethrow;
     } catch (error) {
@@ -91,6 +96,7 @@ class GameRepository {
 
     try {
       await _client.rpc('leave_game', params: {'p_game_id': gameId});
+      await _broadcastLobbyChanged(gameId, 'left');
     } on LobbyException {
       rethrow;
     } catch (error) {
@@ -101,6 +107,7 @@ class GameRepository {
   Future<void> cancelLobby(String gameId) async {
     try {
       await _client.rpc('cancel_lobby', params: {'p_game_id': gameId});
+      await _broadcastLobbyChanged(gameId, 'cancelled');
     } on LobbyException {
       rethrow;
     } catch (error) {
@@ -157,8 +164,11 @@ class GameRepository {
     required void Function() onGameDeleted,
     required void Function(LobbyRealtimeStatus status) onStatus,
   }) {
-    final topic =
-        'lobby-$gameId-${DateTime.now().microsecondsSinceEpoch}';
+    final topic = lobbyChannelName(gameId);
+    final previous = _lobbyChannels.remove(topic);
+    if (previous != null) {
+      unawaited(_client.removeChannel(previous));
+    }
 
     final channel = _client
         .channel(topic)
@@ -189,8 +199,19 @@ class GameRepository {
               onChange();
             }
           },
+        )
+        .onBroadcast(
+          event: 'lobby_changed',
+          callback: (payload) {
+            if (_broadcastReason(payload) == 'cancelled') {
+              onGameDeleted();
+            } else {
+              onChange();
+            }
+          },
         );
 
+    _lobbyChannels[topic] = channel;
     onStatus(LobbyRealtimeStatus.connecting);
     channel.subscribe((status, error) {
       switch (status) {
@@ -208,7 +229,62 @@ class GameRepository {
       }
     });
 
-    return LobbyRealtimeSubscription(() => _client.removeChannel(channel));
+    return LobbyRealtimeSubscription(() async {
+      _lobbyChannels.remove(topic);
+      await _client.removeChannel(channel);
+    });
+  }
+
+  Future<void> _broadcastLobbyChanged(String gameId, String reason) async {
+    final topic = lobbyChannelName(gameId);
+    final payload = {'reason': reason, 'game_id': gameId};
+    final existing = _lobbyChannels[topic];
+    if (existing != null) {
+      try {
+        await existing.sendBroadcastMessage(
+          event: 'lobby_changed',
+          payload: payload,
+        );
+      } catch (_) {}
+      return;
+    }
+
+    final ephemeral = _client.channel(topic);
+    try {
+      final joined = Completer<void>();
+      ephemeral.subscribe((status, error) {
+        if (joined.isCompleted) {
+          return;
+        }
+        if (status == RealtimeSubscribeStatus.subscribed) {
+          joined.complete();
+        } else if (status == RealtimeSubscribeStatus.channelError ||
+            status == RealtimeSubscribeStatus.timedOut) {
+          joined.completeError(error ?? status);
+        }
+      });
+      await joined.future.timeout(const Duration(seconds: 2));
+      await ephemeral.sendBroadcastMessage(
+        event: 'lobby_changed',
+        payload: payload,
+      );
+    } catch (_) {
+      // Postgres changes or the lobby poll still refresh other devices.
+    } finally {
+      await _client.removeChannel(ephemeral);
+    }
+  }
+
+  String? _broadcastReason(Map<String, dynamic> payload) {
+    final direct = payload['reason'];
+    if (direct is String) {
+      return direct;
+    }
+    final nested = payload['payload'];
+    if (nested is Map && nested['reason'] is String) {
+      return nested['reason'] as String;
+    }
+    return null;
   }
 
   Future<List<GamePlayerRecord>> fetchPlayers(String gameId) async {
