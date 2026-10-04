@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/game_create/create_game_screen.dart';
 import '../features/gps_test/gps_test_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/map/map_screen.dart';
@@ -24,6 +25,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/map-test',
         name: 'mapTest',
         builder: (context, state) => const MapScreen(),
+      ),
+      GoRoute(
+        path: '/create-game',
+        name: 'createGame',
+        builder: (context, state) => const CreateGameScreen(),
       ),
       GoRoute(
         path: '/map-editor',

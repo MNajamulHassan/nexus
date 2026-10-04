@@ -24,7 +24,7 @@ class HomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 48),
               FilledButton(
-                onPressed: () {},
+                onPressed: () => context.push('/create-game'),
                 child: const Text('Create Game'),
               ),
               const SizedBox(height: 16),
