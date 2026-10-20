@@ -17,6 +17,7 @@ class AppLocation {
     this.accuracyMeters,
     this.altitudeMeters,
     this.speedMetersPerSecond,
+    this.headingDegrees,
   });
 
   final double latitude;
@@ -26,6 +27,11 @@ class AppLocation {
   final double? accuracyMeters;
   final double? altitudeMeters;
   final double? speedMetersPerSecond;
+
+  /// Course over ground in degrees (0-360, clockwise from north) — only
+  /// meaningful while moving. This is GPS travel direction, not a true
+  /// magnetometer compass heading.
+  final double? headingDegrees;
 }
 
 sealed class LocationResult {

@@ -1,6 +1,6 @@
 {
-    "name": "nexus",
-    "short_name": "nexus",
+    "name": "Manhunt",
+    "short_name": "Manhunt",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

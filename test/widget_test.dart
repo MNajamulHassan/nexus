@@ -30,7 +30,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('NEXUS'), findsOneWidget);
+    expect(find.text('MANHUNT'), findsOneWidget);
     expect(find.text('Tester'), findsOneWidget);
     expect(find.text('Edit Name'), findsOneWidget);
     expect(find.text('Create Game'), findsOneWidget);

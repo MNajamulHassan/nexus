@@ -12,7 +12,7 @@ class NexusApp extends ConsumerWidget {
     final router = ref.watch(routerProvider);
 
     return MaterialApp.router(
-      title: 'NEXUS',
+      title: NexusTheme.appName,
       debugShowCheckedModeBanner: false,
       theme: NexusTheme.dark,
       routerConfig: router,

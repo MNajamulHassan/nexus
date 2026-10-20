@@ -150,15 +150,24 @@ class SeekerSighting {
 /// A hider the seeker is currently close enough to catch, per the server's
 /// proximity check. Never carries raw coordinates — only distance.
 class CatchCandidate {
-  const CatchCandidate({required this.hiderId, required this.distanceMeters});
+  const CatchCandidate({
+    required this.hiderId,
+    required this.distanceMeters,
+    required this.latitude,
+    required this.longitude,
+  });
 
   final String hiderId;
   final double distanceMeters;
+  final double latitude;
+  final double longitude;
 
   factory CatchCandidate.fromRow(Map<String, dynamic> row) {
     return CatchCandidate(
       hiderId: row['hider_id'] as String,
       distanceMeters: _asDouble(row['distance_meters']),
+      latitude: _asDouble(row['latitude']),
+      longitude: _asDouble(row['longitude']),
     );
   }
 }

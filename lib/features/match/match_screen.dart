@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,15 +50,26 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
 
   Timer? _syncTimer;
   Timer? _displayTicker;
+  Timer? _introTimer;
+  Timer? _catchBannerTimer;
   StreamSubscription<LocationResult>? _locationSub;
   bool _navigatedAway = false;
+  bool _showIntro = true;
+  bool _showLegend = true;
+  String? _catchBanner;
 
+  static const _navIconId = 'manhunt-nav-triangle';
+
+  MapboxMap? _mapboxMap;
   PolygonAnnotationManager? _polygonManager;
   PolylineAnnotationManager? _boundaryLineManager;
   CircleAnnotationManager? _boundaryNodeManager;
+  PolylineAnnotationManager? _catchRadiusManager;
   CircleAnnotationManager? _selfMarkerManager;
+  PointAnnotationManager? _selfIconManager;
   CircleAnnotationManager? _hiderMarkerManager;
   CircleAnnotationManager? _seekerMarkerManager;
+  PointAnnotationManager? _seekerIconManager;
 
   @override
   void initState() {
@@ -77,6 +90,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     _syncTimer = null;
     _displayTicker?.cancel();
     _displayTicker = null;
+    _introTimer?.cancel();
+    _introTimer = null;
+    _catchBannerTimer?.cancel();
+    _catchBannerTimer = null;
     unawaited(_locationSub?.cancel());
     _locationSub = null;
   }
@@ -115,6 +132,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       });
       _syncTimer = Timer.periodic(const Duration(seconds: 3), (_) => _tick());
       unawaited(_tick());
+      _introTimer = Timer(const Duration(milliseconds: 1100), () {
+        if (mounted) {
+          setState(() => _showIntro = false);
+        }
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -146,10 +168,22 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     if (!mounted) {
       return;
     }
+    final previouslyEliminated = _players
+        .where((p) => p.isEliminated)
+        .map((p) => p.playerId)
+        .toSet();
     setState(() {
       _game = game;
       _players = players;
     });
+    final newlyEliminated = players
+        .where((p) => p.isEliminated && !previouslyEliminated.contains(p.playerId))
+        .toList();
+    if (newlyEliminated.isNotEmpty) {
+      final name =
+          _profiles[newlyEliminated.first.playerId]?.displayName ?? 'A hider';
+      _showCatchBanner('$name was caught!');
+    }
 
     if (game.status == 'FINISHED' || game.status == 'CLOSED') {
       _goToResults();
@@ -190,11 +224,22 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     unawaited(_redrawHiders());
     unawaited(_redrawSeekerMarker());
+    unawaited(_drawCatchRadius());
   }
 
   Future<void> _catchHider(String hiderId) async {
     await ref.read(gameRepositoryProvider).attemptCatch(widget.gameId, hiderId);
     unawaited(_tick());
+  }
+
+  void _showCatchBanner(String message) {
+    _catchBannerTimer?.cancel();
+    setState(() => _catchBanner = message);
+    _catchBannerTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() => _catchBanner = null);
+      }
+    });
   }
 
   void _goToResults() {
@@ -244,6 +289,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           });
           unawaited(_showSelfMarker(location));
           unawaited(_reportLocation(location));
+          unawaited(_drawCatchRadius());
         case LocationError(:final message):
           setState(() => _locationNotice = message);
       }
@@ -261,20 +307,26 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
+    _mapboxMap = map;
     // The built-in scale bar/compass overlap the HUD card; this game needs
     // neither.
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
+    await _registerNavIcon(map);
 
     _polygonManager = await map.annotations.createPolygonAnnotationManager();
     _boundaryLineManager = await map.annotations
         .createPolylineAnnotationManager();
     _boundaryNodeManager = await map.annotations
         .createCircleAnnotationManager();
+    _catchRadiusManager = await map.annotations
+        .createPolylineAnnotationManager();
     _selfMarkerManager = await map.annotations.createCircleAnnotationManager();
+    _selfIconManager = await map.annotations.createPointAnnotationManager();
     _hiderMarkerManager = await map.annotations.createCircleAnnotationManager();
     _seekerMarkerManager = await map.annotations
         .createCircleAnnotationManager();
+    _seekerIconManager = await map.annotations.createPointAnnotationManager();
 
     await _drawZones();
     final location = _myLocation;
@@ -283,6 +335,29 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     await _redrawHiders();
     await _redrawSeekerMarker();
+    await _drawCatchRadius();
+  }
+
+  /// Renders a simple upward-pointing triangle to a raster image once and
+  /// registers it as a tintable (SDF) style icon — reused for both the
+  /// "you" marker (rotated to heading) and the seeker marker (rotated 180°
+  /// to point down), matching the reference design's arrow/triangle shapes
+  /// instead of plain circles.
+  Future<void> _registerNavIcon(MapboxMap map) async {
+    const size = 64.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final path = Path()
+      ..moveTo(size / 2, 0)
+      ..lineTo(size - 6, size - 4)
+      ..lineTo(size / 2, size * 0.68)
+      ..lineTo(6, size - 4)
+      ..close();
+    canvas.drawPath(path, Paint()..color = const Color(0xFFFFFFFF));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final styleImage = await StyleImage.fromImage(image);
+    await map.addImage(_navIconId, 1.0, styleImage, sdf: true);
   }
 
   Future<void> _drawZones() async {
@@ -299,7 +374,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     for (final zone in _zones) {
       final vertices = zone.polygon.vertices;
       final isPlayable = zone.type == ZoneType.playable;
-      final color = isPlayable ? NexusTheme.accent : NexusTheme.danger;
+      final color = isPlayable ? NexusTheme.accent : NexusTheme.restricted;
       final outline = PolygonService.toLineString(
         PolygonService.closedRing(vertices),
       );
@@ -386,18 +461,55 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     );
   }
 
+  /// Glowing halo + a rotated nav-triangle icon on top — "you" rotates to
+  /// GPS travel heading; the seeker marker (below) is always rotated to
+  /// point straight down, matching the reference design.
+  Future<void> _createNavMarker(
+    CircleAnnotationManager glowManager,
+    PointAnnotationManager iconManager,
+    Point geometry,
+    Color color,
+    double rotationDegrees,
+  ) async {
+    await glowManager.create(
+      CircleAnnotationOptions(
+        geometry: geometry,
+        circleColor: color.toARGB32(),
+        circleRadius: 22,
+        circleBlur: 1,
+        circleOpacity: 0.35,
+      ),
+    );
+    await iconManager.create(
+      PointAnnotationOptions(
+        geometry: geometry,
+        iconImage: _navIconId,
+        iconColor: color.toARGB32(),
+        iconRotate: rotationDegrees,
+        iconSize: 1.0,
+      ),
+    );
+  }
+
   Future<void> _showSelfMarker(AppLocation location) async {
-    final manager = _selfMarkerManager;
-    if (manager == null) {
+    final glowManager = _selfMarkerManager;
+    final iconManager = _selfIconManager;
+    if (glowManager == null || iconManager == null) {
       return;
     }
-    await manager.deleteAll();
-    await _createGlowMarker(
-      manager,
+    await glowManager.deleteAll();
+    await iconManager.deleteAll();
+    final color = _myPlayer?.isSeeker == true
+        ? NexusTheme.danger
+        : NexusTheme.accent;
+    await _createNavMarker(
+      glowManager,
+      iconManager,
       PolygonService.toPoint(
         GeoPoint(longitude: location.longitude, latitude: location.latitude),
       ),
-      NexusTheme.accent,
+      color,
+      location.headingDegrees ?? 0,
     );
   }
 
@@ -407,7 +519,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       return;
     }
     await manager.deleteAll();
+    final seen = <String>{};
     for (final sighting in _sightings) {
+      seen.add(sighting.playerId);
       await _createGlowMarker(
         manager,
         PolygonService.toPoint(
@@ -420,25 +534,110 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         hollow: true,
       );
     }
+    // A hider close enough to catch is visible too, even outside a reveal
+    // window — you're already standing next to them.
+    for (final candidate in _catchCandidates) {
+      if (!seen.add(candidate.hiderId)) {
+        continue;
+      }
+      await _createGlowMarker(
+        manager,
+        PolygonService.toPoint(
+          GeoPoint(longitude: candidate.longitude, latitude: candidate.latitude),
+        ),
+        NexusTheme.accent,
+        hollow: true,
+      );
+    }
   }
 
   Future<void> _redrawSeekerMarker() async {
-    final manager = _seekerMarkerManager;
-    if (manager == null) {
+    final glowManager = _seekerMarkerManager;
+    final iconManager = _seekerIconManager;
+    if (glowManager == null || iconManager == null) {
       return;
     }
-    await manager.deleteAll();
+    await glowManager.deleteAll();
+    await iconManager.deleteAll();
     final seeker = _seekerSighting;
     if (seeker == null) {
       return;
     }
-    await _createGlowMarker(
-      manager,
+    await _createNavMarker(
+      glowManager,
+      iconManager,
       PolygonService.toPoint(
         GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
       ),
       NexusTheme.danger,
+      180,
     );
+  }
+
+  Future<void> _drawCatchRadius() async {
+    final manager = _catchRadiusManager;
+    if (manager == null) {
+      return;
+    }
+    await manager.deleteAll();
+    final location = _myLocation;
+    final game = _game;
+    if (location == null ||
+        game == null ||
+        game.status != 'ACTIVE' ||
+        _myPlayer?.isSeeker != true) {
+      return;
+    }
+    final center = GeoPoint(
+      longitude: location.longitude,
+      latitude: location.latitude,
+    );
+    final ring = PolygonService.closedRing(
+      _geodesicCircle(center, game.catchRadiusMeters),
+    );
+    final line = PolygonService.toLineString(ring);
+    if (line == null) {
+      return;
+    }
+    await manager.create(
+      PolylineAnnotationOptions(
+        geometry: line,
+        lineColor: NexusTheme.danger.toARGB32(),
+        lineWidth: 8,
+        lineBlur: 6,
+        lineOpacity: 0.3,
+      ),
+    );
+    await manager.create(
+      PolylineAnnotationOptions(
+        geometry: line,
+        lineColor: NexusTheme.danger.toARGB32(),
+        lineWidth: 1.5,
+        lineOpacity: 0.8,
+      ),
+    );
+  }
+
+  List<GeoPoint> _geodesicCircle(
+    GeoPoint center,
+    double radiusMeters, {
+    int segments = 48,
+  }) {
+    const metersPerDegreeLat = 111320.0;
+    final metersPerDegreeLon =
+        111320.0 * math.cos(center.latitude * math.pi / 180);
+    return [
+      for (var i = 0; i < segments; i++)
+        () {
+          final angle = 2 * math.pi * i / segments;
+          final dx = radiusMeters * math.cos(angle);
+          final dy = radiusMeters * math.sin(angle);
+          return GeoPoint(
+            longitude: center.longitude + dx / metersPerDegreeLon,
+            latitude: center.latitude + dy / metersPerDegreeLat,
+          );
+        }(),
+    ];
   }
 
   void _recenter() {
@@ -454,6 +653,40 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         zoom: MapStyleService.defaultZoom,
       ),
       transition: const FlyViewportTransition(duration: Duration(milliseconds: 600)),
+    );
+  }
+
+  Future<void> _zoomBy(double delta) async {
+    final map = _mapboxMap;
+    if (map == null) {
+      return;
+    }
+    final camera = await map.getCameraState();
+    _viewportController.moveTo(
+      CameraViewportState(
+        center: camera.center,
+        zoom: camera.zoom + delta,
+        bearing: camera.bearing,
+        pitch: camera.pitch,
+      ),
+      transition: const FlyViewportTransition(duration: Duration(milliseconds: 250)),
+    );
+  }
+
+  Future<void> _resetNorth() async {
+    final map = _mapboxMap;
+    if (map == null) {
+      return;
+    }
+    final camera = await map.getCameraState();
+    _viewportController.moveTo(
+      CameraViewportState(
+        center: camera.center,
+        zoom: camera.zoom,
+        bearing: 0,
+        pitch: camera.pitch,
+      ),
+      transition: const FlyViewportTransition(duration: Duration(milliseconds: 300)),
     );
   }
 
@@ -503,13 +736,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Hide & Seek'),
-        automaticallyImplyLeading: false,
-      ),
-      body: _buildBody(),
-    );
+    // No system AppBar during the match — the reference design is a
+    // full-bleed tactical map with no title bar at all.
+    return Scaffold(body: _buildBody());
   }
 
   Widget _buildBody() {
@@ -539,6 +768,8 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       );
     }
 
+    final insets = MediaQuery.paddingOf(context);
+
     return Stack(
       children: [
         MapWidget(
@@ -556,37 +787,56 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           },
         ),
         Positioned(
-          top: 12,
+          top: insets.top + 10,
           left: 12,
           right: 12,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Flexible(
-                child: _BrandHud(
-                  game: _game,
-                  myRole: _myPlayer?.role,
-                  eliminated: _myPlayer?.isEliminated ?? false,
-                  revealActive: _revealActive,
-                  secondsRemaining: _secondsRemaining,
-                  hidersRemaining: _players
-                      .where((p) => p.isHider && p.status == 'ACTIVE')
-                      .length,
-                  sightingsCount: _sightings.length,
-                  locationNotice: _locationNotice,
-                  visibilityNotice: _visibilityNotice,
-                ),
+          child: AnimatedOpacity(
+            opacity: _showIntro ? 0 : 1,
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeInOut,
+            child: IgnorePointer(
+              ignoring: _showIntro,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Flexible(
+                    child: _BrandHud(
+                      game: _game,
+                      myRole: _myPlayer?.role,
+                      eliminated: _myPlayer?.isEliminated ?? false,
+                      revealActive: _revealActive,
+                      secondsRemaining: _secondsRemaining,
+                      hidersRemaining: _players
+                          .where((p) => p.isHider && p.status == 'ACTIVE')
+                          .length,
+                      sightingsCount: _sightings.length,
+                      locationNotice: _locationNotice,
+                      visibilityNotice: _visibilityNotice,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _LegendPanel(
+                    myRole: _myPlayer?.role,
+                    shown: _showLegend,
+                    onToggle: () => setState(() => _showLegend = !_showLegend),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              _LegendPanel(myRole: _myPlayer?.role),
-            ],
+            ),
           ),
         ),
+        if (_catchBanner != null)
+          Positioned(
+            top: insets.top + 90,
+            left: 12,
+            right: 12,
+            child: _CatchBanner(key: ValueKey(_catchBanner), message: _catchBanner!),
+          ),
         if (_catchCandidates.isNotEmpty)
           Positioned(
             left: 12,
             right: 12,
-            bottom: 16,
+            bottom: insets.bottom + 16,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -605,12 +855,51 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             ),
           ),
         Positioned(
+          left: 16,
+          bottom: insets.bottom + 16,
+          child: _GlassSquareButton(
+            icon: Icons.navigation_outlined,
+            tooltip: 'Reset north',
+            onPressed: _resetNorth,
+          ),
+        ),
+        Positioned(
           right: 16,
-          bottom: 16,
-          child: FloatingActionButton.small(
-            onPressed: _recenter,
-            tooltip: 'Recenter',
-            child: const Icon(Icons.my_location),
+          bottom: insets.bottom + 16,
+          child: Column(
+            children: [
+              _ZoomPill(onZoomIn: () => _zoomBy(1), onZoomOut: () => _zoomBy(-1)),
+              const SizedBox(height: 10),
+              _GlassSquareButton(
+                icon: Icons.my_location,
+                tooltip: 'Recenter',
+                onPressed: _recenter,
+              ),
+            ],
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: !_showIntro,
+            child: AnimatedOpacity(
+              opacity: _showIntro ? 1 : 0,
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeInOut,
+              child: ColoredBox(
+                color: NexusTheme.background.withValues(alpha: 0.85),
+                child: Center(
+                  child: AnimatedScale(
+                    scale: _showIntro ? 1 : 0.35,
+                    duration: const Duration(milliseconds: 600),
+                    curve: Curves.easeInOutCubic,
+                    child: _IntroTimerCard(
+                      secondsRemaining: _secondsRemaining,
+                      hidingPhase: _game?.status == 'HIDING_PHASE',
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ],
@@ -727,6 +1016,113 @@ String _formatClock(int totalSeconds) {
   return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
+/// Big centered countdown shown for ~1s right after the match screen
+/// appears, then scaled/faded down into the compact corner HUD.
+class _IntroTimerCard extends StatelessWidget {
+  const _IntroTimerCard({
+    required this.secondsRemaining,
+    required this.hidingPhase,
+  });
+
+  final int secondsRemaining;
+  final bool hidingPhase;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          NexusTheme.appName,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: NexusTheme.accent,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          _formatClock(secondsRemaining),
+          style: NexusTheme.readout.copyWith(
+            fontSize: 64,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          hidingPhase ? 'HIDING PHASE' : 'HUNT BEGINS',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: Colors.white70,
+            letterSpacing: 3,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Transient banner animated in when a hider gets caught.
+class _CatchBanner extends StatefulWidget {
+  const _CatchBanner({super.key, required this.message});
+
+  final String message;
+
+  @override
+  State<_CatchBanner> createState() => _CatchBannerState();
+}
+
+class _CatchBannerState extends State<_CatchBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  )..forward();
+  late final Animation<Offset> _slide = Tween<Offset>(
+    begin: const Offset(0, -0.4),
+    end: Offset.zero,
+  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: SlideTransition(
+        position: _slide,
+        child: AppCard(
+          color: NexusTheme.danger.withValues(alpha: 0.92),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.flash_on, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  widget.message,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small round button that shows/hides the legend panel — it stays visible
+/// so the legend is never permanently lost.
 /// Tactical-ops style HUD: brand mark, a short status line, and a large
 /// countdown clock — modeled directly on the reference the user provided.
 class _BrandHud extends StatelessWidget {
@@ -782,69 +1178,76 @@ class _BrandHud extends StatelessWidget {
 
     return AppCard(
       color: NexusTheme.surface.withValues(alpha: 0.9),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'NEXUS',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            NexusTheme.appName,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w700,
-              letterSpacing: 4,
+              letterSpacing: 3,
               color: NexusTheme.accent,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 1),
           Text(
             subtitle,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              letterSpacing: 2,
+              fontSize: 10,
+              letterSpacing: 1.5,
               fontWeight: FontWeight.w600,
               color: subtitleColor,
             ),
           ),
-          const SizedBox(height: 10),
-          ColoredBox(color: NexusTheme.hairline, child: const SizedBox(height: 1, width: double.infinity)),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
+          const ColoredBox(
+            color: NexusTheme.hairline,
+            child: SizedBox(height: 1, width: double.infinity),
+          ),
+          const SizedBox(height: 6),
           Text(
             clockLabel,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              letterSpacing: 2,
+              fontSize: 9,
+              letterSpacing: 1.5,
               color: Colors.white54,
             ),
           ),
           Text(
             _formatClock(secondsRemaining),
             style: NexusTheme.readout.copyWith(
-              fontSize: 28,
+              fontSize: 22,
               fontWeight: FontWeight.w700,
               color: Colors.white,
             ),
           ),
           if (status == 'ACTIVE' && myRole == 'SEEKER' && revealActive) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               'Sightings: $sightingsCount',
-              style: Theme.of(context).textTheme.bodySmall,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
             ),
           ],
           if (visibilityNotice != null) ...[
             const SizedBox(height: 4),
             Text(
               visibilityNotice!,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: NexusTheme.danger),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 11,
+                color: NexusTheme.danger,
+              ),
             ),
           ],
           if (locationNotice != null) ...[
             const SizedBox(height: 4),
             Text(
               locationNotice!,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: NexusTheme.danger),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontSize: 11,
+                color: NexusTheme.danger,
+              ),
             ),
           ],
         ],
@@ -854,14 +1257,40 @@ class _BrandHud extends StatelessWidget {
 }
 
 /// Static legend explaining the map's markers and zones — "YOU" adapts its
-/// color to whichever role you're actually playing this match.
+/// color to whichever role you're actually playing this match. The toggle
+/// to collapse it lives inside the card itself (its header's close icon);
+/// collapsed, it's just a small round button in the same spot.
 class _LegendPanel extends StatelessWidget {
-  const _LegendPanel({required this.myRole});
+  const _LegendPanel({
+    required this.myRole,
+    required this.shown,
+    required this.onToggle,
+  });
 
   final String? myRole;
+  final bool shown;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
+    if (!shown) {
+      return Material(
+        color: NexusTheme.surface.withValues(alpha: 0.9),
+        shape: const CircleBorder(),
+        child: IconButton(
+          onPressed: onToggle,
+          tooltip: 'Show legend',
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+          icon: const Icon(
+            Icons.info_outline,
+            size: 16,
+            color: Colors.white70,
+          ),
+        ),
+      );
+    }
+
     final youColor = myRole == 'SEEKER' ? NexusTheme.danger : NexusTheme.accent;
     final youRoleLabel = switch (myRole) {
       'SEEKER' => 'SEEKER',
@@ -869,36 +1298,60 @@ class _LegendPanel extends StatelessWidget {
       _ => '',
     };
 
+    // "YOU" already states your own role — don't also list a separate
+    // identical-looking row for it below (that was the "legend isn't
+    // accurate" duplicate: a seeker would see a red triangle twice).
+    final otherRoleRow = myRole == 'SEEKER'
+        ? _LegendRow(swatch: _LegendRing(color: NexusTheme.accent), label: 'HIDER')
+        : _LegendRow(
+            swatch: _LegendTriangle(color: NexusTheme.danger),
+            label: 'SEEKER',
+          );
+
     return AppCard(
       color: NexusTheme.surface.withValues(alpha: 0.9),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'LEGEND',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontSize: 9,
+                  letterSpacing: 1.5,
+                  fontWeight: FontWeight.w700,
+                  color: NexusTheme.dimText,
+                ),
+              ),
+              GestureDetector(
+                onTap: onToggle,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.close, size: 13, color: Colors.white54),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
           _LegendRow(
-            swatch: _LegendDot(color: youColor),
+            swatch: _LegendTriangle(color: youColor),
             label: 'YOU',
             sublabel: youRoleLabel.isEmpty ? null : youRoleLabel,
           ),
-          const SizedBox(height: 8),
-          _LegendRow(
-            swatch: _LegendDot(color: NexusTheme.danger),
-            label: 'SEEKER',
-          ),
-          const SizedBox(height: 8),
-          _LegendRow(
-            swatch: _LegendRing(color: NexusTheme.accent),
-            label: 'HIDER',
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
+          otherRoleRow,
+          const SizedBox(height: 6),
           _LegendRow(
             swatch: _LegendOutlineSquare(color: NexusTheme.accent),
-            label: 'PLAYABLE AREA',
+            label: 'PLAYABLE',
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           _LegendRow(
-            swatch: _LegendFilledSquare(color: NexusTheme.danger),
+            swatch: _LegendFilledSquare(color: NexusTheme.restricted),
             label: 'RESTRICTED',
           ),
         ],
@@ -919,8 +1372,8 @@ class _LegendRow extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(width: 16, height: 16, child: swatch),
-        const SizedBox(width: 8),
+        SizedBox(width: 12, height: 12, child: swatch),
+        const SizedBox(width: 6),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -928,7 +1381,8 @@ class _LegendRow extends StatelessWidget {
             Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                letterSpacing: 1.5,
+                fontSize: 10,
+                letterSpacing: 1.2,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
@@ -949,16 +1403,35 @@ class _LegendRow extends StatelessWidget {
   }
 }
 
-class _LegendDot extends StatelessWidget {
-  const _LegendDot({required this.color});
+/// Matches the on-map nav-triangle marker shape exactly, so the legend
+/// icon and the actual marker always look the same.
+class _LegendTriangle extends StatelessWidget {
+  const _LegendTriangle({required this.color});
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-    );
+    return CustomPaint(painter: _TrianglePainter(color));
   }
+}
+
+class _TrianglePainter extends CustomPainter {
+  _TrianglePainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrianglePainter oldDelegate) =>
+      oldDelegate.color != color;
 }
 
 class _LegendRing extends StatelessWidget {
@@ -996,6 +1469,68 @@ class _LegendFilledSquare extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.35),
         border: Border.all(color: color, width: 2),
+      ),
+    );
+  }
+}
+
+/// Dark-glass square icon button — bottom-left reset-north / bottom-right
+/// recenter controls.
+class _GlassSquareButton extends StatelessWidget {
+  const _GlassSquareButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: NexusTheme.surface.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(16),
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(icon, color: NexusTheme.accent),
+      ),
+    );
+  }
+}
+
+/// Dark-glass vertical zoom pill with +/- separated by a divider.
+class _ZoomPill extends StatelessWidget {
+  const _ZoomPill({required this.onZoomIn, required this.onZoomOut});
+
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomOut;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: NexusTheme.surface.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: onZoomIn,
+            tooltip: 'Zoom in',
+            icon: const Icon(Icons.add, color: NexusTheme.accent),
+          ),
+          const ColoredBox(
+            color: NexusTheme.hairline,
+            child: SizedBox(height: 1, width: 32),
+          ),
+          IconButton(
+            onPressed: onZoomOut,
+            tooltip: 'Zoom out',
+            icon: const Icon(Icons.remove, color: NexusTheme.accent),
+          ),
+        ],
       ),
     );
   }

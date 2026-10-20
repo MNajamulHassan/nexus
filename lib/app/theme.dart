@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 
 abstract final class NexusTheme {
+  /// The single source of truth for the app's display name — never
+  /// hardcode "MANHUNT" directly in a widget.
+  static const appName = 'MANHUNT';
+
   static const background = Color(0xFF0B1220);
   static const surface = Color(0xFF121A2A);
   static const surfaceRaised = Color(0xFF1A2438);
   static const hairline = Color(0xFF263252);
-  static const accent = Color(0xFF00E5FF);
+  static const accent = Color(0xFF22E4FF);
   static const onAccent = Color(0xFF041018);
+  static const dimText = Color(0xFF7C93AD);
 
-  /// One hostile color, one safe color, one caution color — used everywhere
-  /// instead of ad hoc `Colors.redAccent`/`greenAccent`/`amberAccent`
-  /// literals, so "danger" always means the same hue across every screen.
-  static const danger = Color(0xFFFF3B5C);
+  /// One hostile color, one safe color, one caution color, one restricted-
+  /// zone color — used everywhere instead of ad hoc `Colors.redAccent`/
+  /// `greenAccent`/`amberAccent` literals, so each meaning always maps to
+  /// the same hue across every screen.
+  static const danger = Color(0xFFFF3B4E);
+  static const restricted = Color(0xFF2F6BFF);
   static const success = Color(0xFF00E676);
   static const warning = Color(0xFFFFC247);
 

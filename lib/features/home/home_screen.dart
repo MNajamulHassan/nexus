@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/theme.dart';
 import '../../core/auth/identity_providers.dart';
 import '../../core/game/game_providers.dart';
 
@@ -44,7 +45,7 @@ class HomeScreen extends ConsumerWidget {
             children: [
               const SizedBox(height: 48),
               Text(
-                'NEXUS',
+                NexusTheme.appName,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.displaySmall?.copyWith(
                   color: Theme.of(context).colorScheme.primary,

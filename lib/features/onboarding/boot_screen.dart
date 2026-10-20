@@ -44,7 +44,7 @@ class _BootBrand extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'NEXUS',
+          NexusTheme.appName,
           style: Theme.of(context).textTheme.displaySmall?.copyWith(
             color: NexusTheme.accent,
           ),

@@ -172,6 +172,7 @@ class LocationService {
       accuracyMeters: position.hasAccuracy ? position.accuracy : null,
       altitudeMeters: position.hasAltitude ? position.altitude : null,
       speedMetersPerSecond: position.hasSpeed ? position.speed : null,
+      headingDegrees: position.hasHeading ? position.heading : null,
     );
   }
 }
