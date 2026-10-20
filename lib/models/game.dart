@@ -67,6 +67,8 @@ class GamePlayerRecord {
     required this.playerId,
     required this.status,
     required this.joinedAt,
+    this.role,
+    this.caughtAt,
   });
 
   final String id;
@@ -74,6 +76,12 @@ class GamePlayerRecord {
   final String playerId;
   final String status;
   final DateTime joinedAt;
+  final String? role;
+  final DateTime? caughtAt;
+
+  bool get isSeeker => role == 'SEEKER';
+  bool get isHider => role == 'HIDER';
+  bool get isEliminated => status == 'ELIMINATED';
 
   factory GamePlayerRecord.fromRow(Map<String, dynamic> row) {
     return GamePlayerRecord(
@@ -82,6 +90,37 @@ class GamePlayerRecord {
       playerId: row['player_id'] as String,
       status: row['status'] as String,
       joinedAt: DateTime.parse(row['joined_at'] as String),
+      role: row['role'] as String?,
+      caughtAt: _optionalDate(row['caught_at']),
+    );
+  }
+}
+
+/// A hider's location as surfaced to the seeker, only during a reveal window.
+class HiderSighting {
+  const HiderSighting({
+    required this.playerId,
+    required this.latitude,
+    required this.longitude,
+    required this.accuracyMeters,
+    required this.clientTimestamp,
+  });
+
+  final String playerId;
+  final double latitude;
+  final double longitude;
+  final double? accuracyMeters;
+  final DateTime clientTimestamp;
+
+  factory HiderSighting.fromRow(Map<String, dynamic> row) {
+    return HiderSighting(
+      playerId: row['player_id'] as String,
+      latitude: _asDouble(row['latitude']),
+      longitude: _asDouble(row['longitude']),
+      accuracyMeters: row['accuracy_meters'] == null
+          ? null
+          : _asDouble(row['accuracy_meters']),
+      clientTimestamp: DateTime.parse(row['client_timestamp'] as String),
     );
   }
 }
@@ -145,6 +184,7 @@ enum LobbyErrorKind {
   load,
   auth,
   network,
+  match,
   unknown,
 }
 

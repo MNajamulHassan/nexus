@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/game.dart';
 import '../../models/game_config.dart';
 import '../auth/auth_models.dart';
+import '../location/location_models.dart';
+import '../maps/map_models.dart';
 import '../maps/polygon_service.dart';
 import 'lobby_realtime.dart';
 
@@ -327,6 +330,123 @@ class GameRepository {
     } catch (error) {
       throw _map(error, LobbyErrorKind.load, 'Could not load player names.');
     }
+  }
+
+  Future<GameRecord> startGame(String gameId) async {
+    try {
+      final raw = await _client.rpc('start_game', params: {'p_game_id': gameId});
+      return GameRecord.fromRow(_asRow(raw, 'start_game'));
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not start the match.');
+    }
+  }
+
+  Future<GameRecord> syncMatchState(String gameId) async {
+    try {
+      final raw = await _client.rpc(
+        'sync_match_state',
+        params: {'p_game_id': gameId},
+      );
+      return GameRecord.fromRow(_asRow(raw, 'sync_match_state'));
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not sync the match.');
+    }
+  }
+
+  Future<List<HiderSighting>> fetchSeekerView(String gameId) async {
+    try {
+      final rows = await _client.rpc(
+        'fetch_seeker_view',
+        params: {'p_game_id': gameId},
+      );
+      return [
+        for (final row in rows as List<dynamic>)
+          HiderSighting.fromRow(Map<String, dynamic>.from(row as Map)),
+      ];
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not load sightings.');
+    }
+  }
+
+  Future<void> reportLocation(String gameId, AppLocation location) async {
+    try {
+      await _client.rpc(
+        'upsert_player_location',
+        params: {
+          'p_game_id': gameId,
+          'p_latitude': location.latitude,
+          'p_longitude': location.longitude,
+          'p_accuracy_meters': location.accuracyMeters ?? 9999.0,
+          'p_speed': location.speedMetersPerSecond,
+          'p_client_timestamp': location.timestamp.toUtc().toIso8601String(),
+        },
+      );
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not report location.');
+    }
+  }
+
+  Future<List<GameZone>> fetchZones(String gameId) async {
+    try {
+      final rows = await _client.rpc(
+        'fetch_game_zones',
+        params: {'p_game_id': gameId},
+      );
+      final zones = <GameZone>[];
+      for (final row in rows as List<dynamic>) {
+        final map = Map<String, dynamic>.from(row as Map);
+        final type = switch (map['type'] as String?) {
+          'PLAYABLE' => ZoneType.playable,
+          'RESTRICTED' => ZoneType.restricted,
+          _ => null,
+        };
+        if (type == null) {
+          continue;
+        }
+        final vertices = _verticesFromGeoJson(map['geojson'] as String);
+        zones.add(
+          GameZone(
+            id: map['id'] as String,
+            type: type,
+            polygon: MapPolygon(id: map['id'] as String, vertices: vertices),
+            name: map['name'] as String?,
+          ),
+        );
+      }
+      return zones;
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not load the play area.');
+    }
+  }
+
+  List<GeoPoint> _verticesFromGeoJson(String geojson) {
+    final decoded = jsonDecode(geojson) as Map<String, dynamic>;
+    final rings = decoded['coordinates'] as List<dynamic>;
+    final ring = (rings.first as List<dynamic>)
+        .map((pair) {
+          final coords = pair as List<dynamic>;
+          return GeoPoint(
+            longitude: (coords[0] as num).toDouble(),
+            latitude: (coords[1] as num).toDouble(),
+          );
+        })
+        .toList();
+    if (ring.length > 1 &&
+        ring.first.longitude == ring.last.longitude &&
+        ring.first.latitude == ring.last.latitude) {
+      ring.removeLast();
+    }
+    return ring;
   }
 
   List<Map<String, dynamic>> _zonesPayload(GameConfig config) {

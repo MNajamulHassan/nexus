@@ -99,6 +99,53 @@ class LocationService {
     }
   }
 
+  /// Continuous position updates for an active match. Yields at most one
+  /// [LocationError] (permission/service problems) then completes, or an
+  /// unbounded stream of fixes as the device moves at least 3 meters.
+  Stream<LocationResult> watchPosition() async* {
+    final serviceEnabled = await permissions.isServiceEnabled();
+    if (!serviceEnabled) {
+      yield const LocationError(
+        kind: LocationErrorKind.servicesDisabled,
+        message:
+            'Location services are turned off. Enable GPS in system settings, then try again.',
+      );
+      return;
+    }
+
+    var permission = await permissions.check();
+    if (permission == LocationPermission.denied) {
+      permission = await permissions.request();
+    }
+
+    if (permission == LocationPermission.denied) {
+      yield const LocationError(
+        kind: LocationErrorKind.permissionDenied,
+        message:
+            'Location permission was denied. Nexus needs location while the app is open to read your GPS position.',
+      );
+      return;
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      yield const LocationError(
+        kind: LocationErrorKind.permissionDeniedForever,
+        message:
+            'Location permission is permanently denied. Open app settings and allow location access, then try again.',
+      );
+      return;
+    }
+
+    final precision = await _readPrecision();
+
+    yield* Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      ),
+    ).map((position) => LocationFix(_toAppLocation(position, precision)));
+  }
+
   Future<bool> openAppSettings() => permissions.openAppSettings();
 
   Future<bool> openLocationSettings() => permissions.openLocationSettings();

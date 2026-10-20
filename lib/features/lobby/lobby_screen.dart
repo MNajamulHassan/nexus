@@ -28,18 +28,37 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
 
     ref.listen(lobbyControllerProvider(widget.gameId), (previous, next) {
       final view = next.value;
-      if (view?.cancelled != true) {
+      if (view == null) {
         return;
       }
-      final cancelledByHost =
-          userId == null || view!.snapshot.game.hostId != userId;
-      if (cancelledByHost) {
-        ref
-            .read(homeNoticeProvider.notifier)
-            .show('The host cancelled this lobby.');
+
+      if (view.cancelled) {
+        final cancelledByHost =
+            userId == null || view.snapshot.game.hostId != userId;
+        if (cancelledByHost) {
+          ref
+              .read(homeNoticeProvider.notifier)
+              .show('The host cancelled this lobby.');
+        }
+        if (context.mounted) {
+          context.go('/');
+        }
+        return;
       }
-      if (context.mounted) {
-        context.go('/');
+
+      final status = view.snapshot.game.status;
+      if (status == 'FINISHED' || status == 'CLOSED') {
+        if (context.mounted) {
+          context.go('/results/${widget.gameId}');
+        }
+        return;
+      }
+      if (status == 'STARTING' ||
+          status == 'HIDING_PHASE' ||
+          status == 'ACTIVE') {
+        if (context.mounted) {
+          context.go('/match/${widget.gameId}');
+        }
       }
     });
 
@@ -70,6 +89,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
             busy: _busy,
             onLeave: _busy ? null : () => _leave(),
             onCancel: _busy ? null : () => _confirmCancel(),
+            onStart: _busy ? null : () => _start(),
           );
         },
       ),
@@ -100,6 +120,33 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Could not leave. $error')));
+    }
+  }
+
+  Future<void> _start() async {
+    setState(() => _busy = true);
+    try {
+      await ref.read(gameRepositoryProvider).startGame(widget.gameId);
+      if (!mounted) {
+        return;
+      }
+      context.go('/match/${widget.gameId}');
+    } on LobbyException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not start. $error')));
     }
   }
 
@@ -163,6 +210,7 @@ class _LobbyBody extends StatelessWidget {
     required this.busy,
     required this.onLeave,
     required this.onCancel,
+    required this.onStart,
   });
 
   final LobbyView view;
@@ -170,6 +218,7 @@ class _LobbyBody extends StatelessWidget {
   final bool busy;
   final VoidCallback? onLeave;
   final VoidCallback? onCancel;
+  final VoidCallback? onStart;
 
   @override
   Widget build(BuildContext context) {
@@ -270,18 +319,30 @@ class _LobbyBody extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 24),
-        if (isHost)
-          OutlinedButton(
-            onPressed: onCancel,
+        if (isHost) ...[
+          FilledButton(
+            onPressed: snapshot.players.length >= 2 ? onStart : null,
             child: busy
                 ? const SizedBox(
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Cancel Lobby'),
-          )
-        else
+                : const Text('Start Match'),
+          ),
+          if (snapshot.players.length < 2) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Need at least 2 players to start.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: onCancel,
+            child: const Text('Cancel Lobby'),
+          ),
+        ] else
           OutlinedButton(
             onPressed: onLeave,
             child: busy

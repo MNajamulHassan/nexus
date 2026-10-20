@@ -10,8 +10,10 @@ import '../features/join_game/join_game_screen.dart';
 import '../features/lobby/lobby_screen.dart';
 import '../features/map/map_screen.dart';
 import '../features/map_editor/map_editor_screen.dart';
+import '../features/match/match_screen.dart';
 import '../features/onboarding/boot_screen.dart';
 import '../features/onboarding/choose_name_screen.dart';
+import '../features/results/results_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
@@ -90,6 +92,22 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/map-editor',
         name: 'mapEditor',
         builder: (context, state) => const MapEditorScreen(),
+      ),
+      GoRoute(
+        path: '/match/:gameId',
+        name: 'match',
+        builder: (context, state) {
+          final gameId = state.pathParameters['gameId'] ?? '';
+          return MatchScreen(gameId: gameId);
+        },
+      ),
+      GoRoute(
+        path: '/results/:gameId',
+        name: 'results',
+        builder: (context, state) {
+          final gameId = state.pathParameters['gameId'] ?? '';
+          return ResultsScreen(gameId: gameId);
+        },
       ),
     ],
   );
