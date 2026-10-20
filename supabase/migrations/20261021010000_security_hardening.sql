@@ -27,11 +27,13 @@
 --      implausible implied speed (>12 m/s, jitter-adjusted by subtracting
 --      both fixes' accuracy radii before dividing) vs. the previous fix
 --      (skipped if that previous fix is itself >60s old), reject missing
---      or >100m accuracy, silently drop (return the previous row
---      unchanged, no write) a client_timestamp older than the stored
---      previous one. server_received_at is always server `now()` — the
---      existing player_locations_guard trigger already enforces this
---      independently.
+--      or >100m accuracy. client_timestamp is attacker-controlled and
+--      stored for display only — it is never used to accept or reject a
+--      write. (A far-future client_timestamp would otherwise make every
+--      later honest fix look "out of order" and get rejected forever,
+--      freezing server_received_at and making that player uncatchable.)
+--      server_received_at is always server `now()` — the existing
+--      player_locations_guard trigger already enforces this independently.
 --   d) Freshness checks in fetch_catch_candidates and
 --      fetch_seeker_location now key off server_received_at, not the
 --      client-supplied client_timestamp. fetch_seeker_view gains the same
@@ -68,12 +70,12 @@
 --   b) fetch_catch_candidates's last_catch_scan_at UPDATE is only ever
 --      followed by plain `return`/`return query` (no later raise in this
 --      function) — confirmed correct, no change needed.
---   c) upsert_player_location's out-of-order-timestamp check now returns
---      the existing row unchanged (`return v_previous;`) instead of
---      raising. This is valid because the function returns
---      public.player_locations, a composite type — returning an existing
---      row of that type is an ordinary early return, not a contract
---      change. Fixed; see the inline comment at that check.
+--   c) upsert_player_location's check against an older client_timestamp
+--      has been removed entirely. client_timestamp is attacker-controlled
+--      and stored for display only; a spoofed far-future value would make
+--      every later honest fix look out of order and get rejected forever,
+--      freezing server_received_at and making that player permanently
+--      uncatchable. See the inline comment where the check used to be.
 --   d) upsert_player_location's accuracy check (null or >100m rejected)
 --      confirmed correct as originally written, no change needed.
 
@@ -142,14 +144,11 @@ begin
   where game_id = p_game_id and player_id = v_user_id;
 
   if v_previous.player_id is not null then
-    -- Out-of-order write: drop silently by returning the existing row
-    -- unchanged. `return v_previous;` is valid here because this function
-    -- returns public.player_locations (a composite type, not void/SETOF) —
-    -- returning an existing row of that same type is an ordinary early
-    -- return, not a contract change.
-    if p_client_timestamp < v_previous.client_timestamp then
-      return v_previous;
-    end if;
+    -- client_timestamp is attacker-controlled and stored for display only;
+    -- it is never used to accept or reject a write (a spoofed far-future
+    -- value would otherwise make every later honest fix look "out of
+    -- order" and get rejected forever). All ordering and freshness below
+    -- is judged purely on the server clock.
 
     -- Gap measured on the server clock, not the client-supplied one.
     v_elapsed_seconds := extract(epoch from (v_now - v_previous.server_received_at));
@@ -161,8 +160,10 @@ begin
       );
       -- Subtract both fixes' reported accuracy radii before dividing, so
       -- two GPS fixes that are merely jittering within their own error
-      -- margins aren't read as implausible movement.
-      v_implied_speed := greatest(0, v_distance_meters - v_previous.accuracy_meters - p_accuracy_meters)
+      -- margins aren't read as implausible movement. coalesce() guards a
+      -- null previous accuracy, which would otherwise make greatest()
+      -- return 0 and skip the check entirely.
+      v_implied_speed := greatest(0, v_distance_meters - coalesce(v_previous.accuracy_meters, 0) - p_accuracy_meters)
         / v_elapsed_seconds;
 
       if v_implied_speed > 12 then
