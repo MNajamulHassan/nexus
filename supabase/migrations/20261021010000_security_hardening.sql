@@ -24,11 +24,14 @@
 --      the caller's own table grants). RLS policies are left in place as
 --      a harmless second layer in case a future grant is added back.
 --   c) upsert_player_location gains plausibility checks: reject on
---      implausible implied speed (>12 m/s) vs. the previous fix (skipped
---      if that previous fix is itself >60s old), reject missing or >100m
---      accuracy, reject a client_timestamp older than the stored previous
---      one. server_received_at is always server `now()` — the existing
---      player_locations_guard trigger already enforces this independently.
+--      implausible implied speed (>12 m/s, jitter-adjusted by subtracting
+--      both fixes' accuracy radii before dividing) vs. the previous fix
+--      (skipped if that previous fix is itself >60s old), reject missing
+--      or >100m accuracy, silently drop (return the previous row
+--      unchanged, no write) a client_timestamp older than the stored
+--      previous one. server_received_at is always server `now()` — the
+--      existing player_locations_guard trigger already enforces this
+--      independently.
 --   d) Freshness checks in fetch_catch_candidates and
 --      fetch_seeker_location now key off server_received_at, not the
 --      client-supplied client_timestamp. fetch_seeker_view gains the same
@@ -65,11 +68,12 @@
 --   b) fetch_catch_candidates's last_catch_scan_at UPDATE is only ever
 --      followed by plain `return`/`return query` (no later raise in this
 --      function) — confirmed correct, no change needed.
---   c) upsert_player_location's out-of-order-timestamp check still
---      raises rather than silently dropping the write, because the
---      function returns public.player_locations (not void) — confirmed
---      the stated precondition for the "drop silently" fix does not
---      hold; left as-is, see the inline comment at that check.
+--   c) upsert_player_location's out-of-order-timestamp check now returns
+--      the existing row unchanged (`return v_previous;`) instead of
+--      raising. This is valid because the function returns
+--      public.player_locations, a composite type — returning an existing
+--      row of that type is an ordinary early return, not a contract
+--      change. Fixed; see the inline comment at that check.
 --   d) upsert_player_location's accuracy check (null or >100m rejected)
 --      confirmed correct as originally written, no change needed.
 
@@ -138,14 +142,13 @@ begin
   where game_id = p_game_id and player_id = v_user_id;
 
   if v_previous.player_id is not null then
-    -- NOTE: an out-of-order fix is reported here (raise), not dropped
-    -- silently, because this function returns public.player_locations
-    -- (not void) — a bare `return;` with no value is invalid for a
-    -- non-void, non-SETOF return type, and returning NULL or changing
-    -- the return shape would change the function's contract. See the
-    -- migration's header comment and the accompanying report.
+    -- Out-of-order write: drop silently by returning the existing row
+    -- unchanged. `return v_previous;` is valid here because this function
+    -- returns public.player_locations (a composite type, not void/SETOF) —
+    -- returning an existing row of that same type is an ordinary early
+    -- return, not a contract change.
     if p_client_timestamp < v_previous.client_timestamp then
-      raise exception 'Location timestamp cannot go backwards';
+      return v_previous;
     end if;
 
     -- Gap measured on the server clock, not the client-supplied one.
@@ -156,7 +159,11 @@ begin
         st_setsrid(st_makepoint(p_longitude, p_latitude), 4326)::geography,
         v_previous.location
       );
-      v_implied_speed := v_distance_meters / v_elapsed_seconds;
+      -- Subtract both fixes' reported accuracy radii before dividing, so
+      -- two GPS fixes that are merely jittering within their own error
+      -- margins aren't read as implausible movement.
+      v_implied_speed := greatest(0, v_distance_meters - v_previous.accuracy_meters - p_accuracy_meters)
+        / v_elapsed_seconds;
 
       if v_implied_speed > 12 then
         raise exception 'Location implies an implausible speed of % m/s (limit 12 m/s)',

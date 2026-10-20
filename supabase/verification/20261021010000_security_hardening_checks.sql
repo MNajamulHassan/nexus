@@ -96,3 +96,41 @@ where table_schema = 'public'
     (table_name = 'games' and column_name = 'max_players')
     or (table_name = 'game_players' and column_name in ('last_catch_scan_at', 'last_catch_attempt_at'))
   );
+
+-- 6) Confirm none of the app functions have a duplicate overload sitting
+-- in pg_proc (information_schema.routine_privileges collapses overloads,
+-- so it can hide a second, differently-grants signature of the same name).
+-- Expect: zero rows.
+select p.proname, count(*) as overload_count
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'attempt_catch', 'cancel_lobby', 'create_game', 'fetch_catch_candidates',
+    'fetch_game_zones', 'fetch_seeker_location', 'fetch_seeker_view',
+    'join_game', 'leave_game', 'replace_game_zones', 'set_player_ready',
+    'start_game', 'sync_match_state', 'upsert_player_location',
+    'generate_join_code', 'is_game_host', 'is_game_member'
+  )
+group by p.proname
+having count(*) > 1;
+
+-- 7) Confirm anon has no EXECUTE on any overload of any app function,
+-- checked per-oid via has_function_privilege rather than
+-- information_schema (which reports by name and can miss a second
+-- overload with different grants). Expect: zero rows.
+select
+  p.proname,
+  p.oid::regprocedure as signature,
+  has_function_privilege('anon', p.oid, 'execute') as has_execute
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'attempt_catch', 'cancel_lobby', 'create_game', 'fetch_catch_candidates',
+    'fetch_game_zones', 'fetch_seeker_location', 'fetch_seeker_view',
+    'join_game', 'leave_game', 'replace_game_zones', 'set_player_ready',
+    'start_game', 'sync_match_state', 'upsert_player_location',
+    'generate_join_code', 'is_game_host', 'is_game_member'
+  )
+  and has_function_privilege('anon', p.oid, 'execute');
