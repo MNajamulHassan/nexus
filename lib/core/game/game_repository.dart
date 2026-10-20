@@ -430,6 +430,10 @@ class GameRepository {
   }
 
   Future<void> reportLocation(String gameId, AppLocation location) async {
+    final accuracy = location.accuracyMeters;
+    if (accuracy == null || accuracy > 100) {
+      return;
+    }
     try {
       await _client.rpc(
         'upsert_player_location',
@@ -437,7 +441,7 @@ class GameRepository {
           'p_game_id': gameId,
           'p_latitude': location.latitude,
           'p_longitude': location.longitude,
-          'p_accuracy_meters': location.accuracyMeters ?? 9999.0,
+          'p_accuracy_meters': accuracy,
           'p_speed': location.speedMetersPerSecond,
           'p_client_timestamp': location.timestamp.toUtc().toIso8601String(),
         },
