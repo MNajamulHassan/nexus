@@ -1,17 +1,35 @@
-# nexus
+# Nexus
 
-A new Flutter project.
+A real-world GPS multiplayer game. Players physically move through a
+host-defined play area; the host draws the boundary on a satellite map, the
+app switches to a dark tactical map for the match, and the server decides
+catches from GPS proximity. First game mode: Hide & Seek.
 
-## Getting Started
+- Client: Flutter / Dart
+- Backend: Supabase (PostgreSQL + PostGIS, Realtime, Auth, RLS)
+- Maps: Mapbox
 
-This project is a starting point for a Flutter application.
+## Docs
 
-A few resources to get you started if this is your first Flutter project:
+- [`docs/PROJECT_BLUEPRINT.md`](docs/PROJECT_BLUEPRINT.md) — original product/technical spec
+- [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) — what's actually built, right now
+- [`docs/TARGET_STATE.md`](docs/TARGET_STATE.md) — demo checklist + near-term roadmap
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Running
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Mapbox and Supabase config live in `env/dev.json` (not committed). Always
+pass it via `--dart-define-from-file`:
+
+```bash
+flutter devices
+flutter run -d <deviceId> --dart-define-from-file=env/dev.json
+```
+
+Release build for installing on demo devices:
+
+```bash
+flutter build apk --release --dart-define-from-file=env/dev.json
+```
+
+Database changes live in `supabase/migrations/*.sql`, applied in order via
+the Supabase SQL Editor (no linked Supabase CLI project in this repo yet).

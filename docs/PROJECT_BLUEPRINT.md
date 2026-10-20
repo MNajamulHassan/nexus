@@ -9,6 +9,11 @@
 **Initial game modes:** Hide & Seek, Infected  
 **Target:** Deployable Android MVP in 7–14 days
 
+> **This document is the original spec, not a live status tracker.** For what
+> is actually built right now, see [`CURRENT_STATE.md`](CURRENT_STATE.md).
+> For what's next (demo checklist + post-demo roadmap), see
+> [`TARGET_STATE.md`](TARGET_STATE.md).
+
 ---
 
 # 1. Product Vision
