@@ -125,6 +125,44 @@ class HiderSighting {
   }
 }
 
+/// The seeker's live position, always visible to hiders while the hunt is
+/// active — the opposite of [HiderSighting], which is reveal-window-gated.
+class SeekerSighting {
+  const SeekerSighting({
+    required this.latitude,
+    required this.longitude,
+    required this.clientTimestamp,
+  });
+
+  final double latitude;
+  final double longitude;
+  final DateTime clientTimestamp;
+
+  factory SeekerSighting.fromRow(Map<String, dynamic> row) {
+    return SeekerSighting(
+      latitude: _asDouble(row['latitude']),
+      longitude: _asDouble(row['longitude']),
+      clientTimestamp: DateTime.parse(row['client_timestamp'] as String),
+    );
+  }
+}
+
+/// A hider the seeker is currently close enough to catch, per the server's
+/// proximity check. Never carries raw coordinates — only distance.
+class CatchCandidate {
+  const CatchCandidate({required this.hiderId, required this.distanceMeters});
+
+  final String hiderId;
+  final double distanceMeters;
+
+  factory CatchCandidate.fromRow(Map<String, dynamic> row) {
+    return CatchCandidate(
+      hiderId: row['hider_id'] as String,
+      distanceMeters: _asDouble(row['distance_meters']),
+    );
+  }
+}
+
 class LobbyPlayer {
   const LobbyPlayer({
     required this.player,

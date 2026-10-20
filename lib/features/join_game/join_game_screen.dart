@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/game/game_providers.dart';
+import '../../core/widgets/app_busy_button.dart';
 import '../../models/game.dart';
 
 class JoinGameScreen extends ConsumerStatefulWidget {
@@ -85,12 +86,13 @@ class _JoinGameScreenState extends ConsumerState<JoinGameScreen> {
               FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
               _UpperCaseTextFormatter(),
             ],
+            style: NexusTheme.readout.copyWith(
+              letterSpacing: 4,
+              fontWeight: FontWeight.w700,
+            ),
             decoration: const InputDecoration(
               labelText: 'Join code',
               counterText: '',
-              filled: true,
-              fillColor: NexusTheme.surface,
-              border: OutlineInputBorder(),
             ),
           ),
           if (_error != null) ...[
@@ -103,15 +105,10 @@ class _JoinGameScreenState extends ConsumerState<JoinGameScreen> {
             ),
           ],
           const SizedBox(height: 24),
-          FilledButton(
-            onPressed: _joining ? null : _join,
-            child: _joining
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Join'),
+          AppBusyButton(
+            busy: _joining,
+            onPressed: _join,
+            child: const Text('Join'),
           ),
         ],
       ),

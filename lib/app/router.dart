@@ -14,6 +14,7 @@ import '../features/match/match_screen.dart';
 import '../features/onboarding/boot_screen.dart';
 import '../features/onboarding/choose_name_screen.dart';
 import '../features/results/results_screen.dart';
+import '../features/zombie/zombie_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = ValueNotifier<int>(0);
@@ -108,6 +109,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           final gameId = state.pathParameters['gameId'] ?? '';
           return ResultsScreen(gameId: gameId);
         },
+      ),
+      GoRoute(
+        path: '/zombie-mode',
+        name: 'zombieMode',
+        builder: (context, state) => const ZombieScreen(),
       ),
     ],
   );

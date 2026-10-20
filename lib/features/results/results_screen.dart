@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme.dart';
 import '../../core/auth/auth_models.dart';
 import '../../core/game/game_providers.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
 
 class ResultsScreen extends ConsumerStatefulWidget {
@@ -74,20 +76,11 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     }
     final error = _error;
     if (error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(error, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => context.go('/'),
-                child: const Text('Back to Home'),
-              ),
-            ],
-          ),
+      return AppErrorState(
+        message: error,
+        secondaryAction: OutlinedButton(
+          onPressed: () => context.go('/'),
+          child: const Text('Back to home'),
         ),
       );
     }
@@ -115,29 +108,24 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
       children: [
-        Material(
-          color: NexusTheme.surface,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text(
-                  seekerWon ? 'Seeker Wins!' : 'Hiders Win!',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: NexusTheme.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
+        AppCard(
+          child: Column(
+            children: [
+              Text(
+                seekerWon ? 'Seeker wins' : 'Hiders win',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: seekerWon ? NexusTheme.danger : NexusTheme.success,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  seekerWon
-                      ? 'Every hider was caught.'
-                      : 'Time ran out before all hiders were caught.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                seekerWon
+                    ? 'Every hider was caught.'
+                    : 'Time ran out before all hiders were caught.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 24),
@@ -172,7 +160,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         const SizedBox(height: 24),
         FilledButton(
           onPressed: () => context.go('/'),
-          child: const Text('Back to Home'),
+          child: const Text('Back to home'),
         ),
       ],
     );
@@ -214,9 +202,8 @@ class _PlayerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: NexusTheme.surface,
-      borderRadius: BorderRadius.circular(8),
+    return AppCard(
+      padding: EdgeInsets.zero,
       child: ListTile(
         leading: Icon(icon, color: NexusTheme.accent),
         title: Text(name),

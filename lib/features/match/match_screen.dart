@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 
 import '../../app/theme.dart';
+import '../../core/auth/auth_models.dart';
 import '../../core/auth/identity_providers.dart';
 import '../../core/game/game_providers.dart';
 import '../../core/location/location_models.dart';
@@ -13,6 +14,8 @@ import '../../core/location/location_providers.dart';
 import '../../core/maps/map_models.dart';
 import '../../core/maps/map_style_service.dart';
 import '../../core/maps/polygon_service.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
 
 class MatchScreen extends ConsumerStatefulWidget {
@@ -25,20 +28,21 @@ class MatchScreen extends ConsumerStatefulWidget {
 }
 
 class _MatchScreenState extends ConsumerState<MatchScreen> {
-  static const _restrictedColor = Color(0xFFFF1744);
-  static const _hiderColor = Color(0xFFFF5252);
-
   final _viewportController = ViewportController();
 
   String? _userId;
   bool _loading = true;
   String? _error;
   String? _locationNotice;
+  String? _visibilityNotice;
 
   GameRecord? _game;
   List<GamePlayerRecord> _players = const [];
   List<GameZone> _zones = const [];
   List<HiderSighting> _sightings = const [];
+  SeekerSighting? _seekerSighting;
+  List<CatchCandidate> _catchCandidates = const [];
+  Map<String, PlayerProfile> _profiles = const {};
   AppLocation? _myLocation;
   Point? _initialCenter;
 
@@ -48,9 +52,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   bool _navigatedAway = false;
 
   PolygonAnnotationManager? _polygonManager;
+  PolylineAnnotationManager? _boundaryLineManager;
+  CircleAnnotationManager? _boundaryNodeManager;
   CircleAnnotationManager? _selfMarkerManager;
   CircleAnnotationManager? _hiderMarkerManager;
-  CircleAnnotation? _selfMarker;
+  CircleAnnotationManager? _seekerMarkerManager;
 
   @override
   void initState() {
@@ -81,6 +87,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       final game = await repo.fetchGame(widget.gameId);
       final players = await repo.fetchPlayers(widget.gameId);
       final zones = await repo.fetchZones(widget.gameId);
+      final profiles = await repo.fetchProfiles([
+        for (final player in players) player.playerId,
+      ]);
       if (!mounted) {
         return;
       }
@@ -89,6 +98,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         _game = game;
         _players = players;
         _zones = zones;
+        _profiles = profiles;
         _loading = false;
       });
 
@@ -120,34 +130,71 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     if (!mounted || _navigatedAway) {
       return;
     }
+    final repo = ref.read(gameRepositoryProvider);
+    GameRecord game;
+    List<GamePlayerRecord> players;
     try {
-      final repo = ref.read(gameRepositoryProvider);
-      final game = await repo.syncMatchState(widget.gameId);
-      final players = await repo.fetchPlayers(widget.gameId);
-      final userId = _userId;
-      final mine = userId == null ? null : _lookup(players, userId);
-
-      var sightings = const <HiderSighting>[];
-      if (mine?.isSeeker == true && game.status == 'ACTIVE') {
-        sightings = await repo.fetchSeekerView(widget.gameId);
-      }
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _game = game;
-        _players = players;
-        _sightings = sightings;
-      });
-      unawaited(_redrawHiders());
-
-      if (game.status == 'FINISHED' || game.status == 'CLOSED') {
-        _goToResults();
-      }
+      // Core state: this must always land, even if the optional visibility
+      // fetches below fail — otherwise a single bad RPC call permanently
+      // freezes the phase/role display.
+      game = await repo.syncMatchState(widget.gameId);
+      players = await repo.fetchPlayers(widget.gameId);
     } catch (_) {
-      // Transient network hiccup; the next tick retries.
+      return; // Transient network hiccup; the next tick retries.
     }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _game = game;
+      _players = players;
+    });
+
+    if (game.status == 'FINISHED' || game.status == 'CLOSED') {
+      _goToResults();
+      return;
+    }
+
+    final userId = _userId;
+    final mine = userId == null ? null : _lookup(players, userId);
+    try {
+      if (mine?.isSeeker == true && game.status == 'ACTIVE') {
+        final sightings = await repo.fetchSeekerView(widget.gameId);
+        final candidates = await repo.fetchCatchCandidates(widget.gameId);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _sightings = sightings;
+          _catchCandidates = candidates;
+          _visibilityNotice = null;
+        });
+      } else if (mine?.isHider == true && game.status == 'ACTIVE') {
+        final seekerSighting = await repo.fetchSeekerLocation(widget.gameId);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _seekerSighting = seekerSighting;
+          _visibilityNotice = null;
+        });
+      }
+    } catch (error) {
+      // Keep last-known sightings/candidates; next tick retries. Surface
+      // the error instead of swallowing it outright — this is exactly the
+      // kind of failure that otherwise looks like "nothing is happening."
+      if (mounted) {
+        setState(() => _visibilityNotice = '$error');
+      }
+    }
+    unawaited(_redrawHiders());
+    unawaited(_redrawSeekerMarker());
+  }
+
+  Future<void> _catchHider(String hiderId) async {
+    await ref.read(gameRepositoryProvider).attemptCatch(widget.gameId, hiderId);
+    unawaited(_tick());
   }
 
   void _goToResults() {
@@ -214,9 +261,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
+    // The built-in scale bar/compass overlap the HUD card; this game needs
+    // neither.
+    await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
+    await map.compass.updateSettings(CompassSettings(enabled: false));
+
     _polygonManager = await map.annotations.createPolygonAnnotationManager();
+    _boundaryLineManager = await map.annotations
+        .createPolylineAnnotationManager();
+    _boundaryNodeManager = await map.annotations
+        .createCircleAnnotationManager();
     _selfMarkerManager = await map.annotations.createCircleAnnotationManager();
     _hiderMarkerManager = await map.annotations.createCircleAnnotationManager();
+    _seekerMarkerManager = await map.annotations
+        .createCircleAnnotationManager();
 
     await _drawZones();
     final location = _myLocation;
@@ -224,30 +282,108 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       await _showSelfMarker(location);
     }
     await _redrawHiders();
+    await _redrawSeekerMarker();
   }
 
   Future<void> _drawZones() async {
-    final manager = _polygonManager;
-    if (manager == null) {
+    final polygons = _polygonManager;
+    final lines = _boundaryLineManager;
+    final nodes = _boundaryNodeManager;
+    if (polygons == null || lines == null || nodes == null) {
       return;
     }
-    await manager.deleteAll();
+    await polygons.deleteAll();
+    await lines.deleteAll();
+    await nodes.deleteAll();
+
     for (final zone in _zones) {
-      final geometry = PolygonService.toPolygon(zone.polygon.vertices);
-      if (geometry == null) {
-        continue;
-      }
+      final vertices = zone.polygon.vertices;
       final isPlayable = zone.type == ZoneType.playable;
-      final color = isPlayable ? NexusTheme.accent : _restrictedColor;
-      await manager.create(
-        PolygonAnnotationOptions(
-          geometry: geometry,
-          fillColor: color.toARGB32(),
-          fillOpacity: isPlayable ? 0.06 : 0.26,
-          fillOutlineColor: color.toARGB32(),
-        ),
+      final color = isPlayable ? NexusTheme.accent : NexusTheme.danger;
+      final outline = PolygonService.toLineString(
+        PolygonService.closedRing(vertices),
       );
+
+      // Restricted zones get a solid fill; the playable boundary is an
+      // outline only, matching a tactical-ops map rather than a flat shape.
+      if (!isPlayable) {
+        final fill = PolygonService.toPolygon(vertices);
+        if (fill != null) {
+          await polygons.create(
+            PolygonAnnotationOptions(
+              geometry: fill,
+              fillColor: color.toARGB32(),
+              fillOpacity: 0.3,
+              fillOutlineColor: color.toARGB32(),
+            ),
+          );
+        }
+      }
+
+      if (outline != null) {
+        // Glow pass (wide, blurred, translucent) under a crisp line.
+        await lines.create(
+          PolylineAnnotationOptions(
+            geometry: outline,
+            lineColor: color.toARGB32(),
+            lineWidth: 10,
+            lineBlur: 8,
+            lineOpacity: 0.45,
+          ),
+        );
+        await lines.create(
+          PolylineAnnotationOptions(
+            geometry: outline,
+            lineColor: color.toARGB32(),
+            lineWidth: 2,
+          ),
+        );
+      }
+
+      if (isPlayable) {
+        for (final vertex in vertices) {
+          await nodes.create(
+            CircleAnnotationOptions(
+              geometry: PolygonService.toPoint(vertex),
+              circleColor: NexusTheme.background.toARGB32(),
+              circleRadius: 4,
+              circleStrokeColor: color.toARGB32(),
+              circleStrokeWidth: 2,
+            ),
+          );
+        }
+      }
     }
+  }
+
+  /// Glowing marker: a wide blurred halo under a crisp dot. [hollow] draws
+  /// the dot as an unfilled ring instead of a solid fill — used to tell
+  /// "you" (solid) apart from a hider sighting (hollow) at the same hue.
+  Future<void> _createGlowMarker(
+    CircleAnnotationManager manager,
+    Point geometry,
+    Color color, {
+    bool hollow = false,
+  }) async {
+    await manager.create(
+      CircleAnnotationOptions(
+        geometry: geometry,
+        circleColor: color.toARGB32(),
+        circleRadius: 20,
+        circleBlur: 1,
+        circleOpacity: 0.35,
+      ),
+    );
+    await manager.create(
+      CircleAnnotationOptions(
+        geometry: geometry,
+        circleColor: color.toARGB32(),
+        circleOpacity: hollow ? 0 : 1,
+        circleRadius: 8,
+        circleStrokeColor: hollow ? color.toARGB32() : Colors.white.toARGB32(),
+        circleStrokeWidth: hollow ? 3 : 2,
+      ),
+    );
   }
 
   Future<void> _showSelfMarker(AppLocation location) async {
@@ -255,23 +391,14 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     if (manager == null) {
       return;
     }
-    final geometry = PolygonService.toPoint(
-      GeoPoint(longitude: location.longitude, latitude: location.latitude),
+    await manager.deleteAll();
+    await _createGlowMarker(
+      manager,
+      PolygonService.toPoint(
+        GeoPoint(longitude: location.longitude, latitude: location.latitude),
+      ),
+      NexusTheme.accent,
     );
-    if (_selfMarker == null) {
-      _selfMarker = await manager.create(
-        CircleAnnotationOptions(
-          geometry: geometry,
-          circleColor: NexusTheme.accent.toARGB32(),
-          circleRadius: 8,
-          circleStrokeColor: Colors.white.toARGB32(),
-          circleStrokeWidth: 2,
-        ),
-      );
-      return;
-    }
-    _selfMarker!.geometry = geometry;
-    await manager.update(_selfMarker!);
   }
 
   Future<void> _redrawHiders() async {
@@ -281,21 +408,37 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     await manager.deleteAll();
     for (final sighting in _sightings) {
-      await manager.create(
-        CircleAnnotationOptions(
-          geometry: PolygonService.toPoint(
-            GeoPoint(
-              longitude: sighting.longitude,
-              latitude: sighting.latitude,
-            ),
+      await _createGlowMarker(
+        manager,
+        PolygonService.toPoint(
+          GeoPoint(
+            longitude: sighting.longitude,
+            latitude: sighting.latitude,
           ),
-          circleColor: _hiderColor.toARGB32(),
-          circleRadius: 9,
-          circleStrokeColor: Colors.white.toARGB32(),
-          circleStrokeWidth: 2,
         ),
+        NexusTheme.accent,
+        hollow: true,
       );
     }
+  }
+
+  Future<void> _redrawSeekerMarker() async {
+    final manager = _seekerMarkerManager;
+    if (manager == null) {
+      return;
+    }
+    await manager.deleteAll();
+    final seeker = _seekerSighting;
+    if (seeker == null) {
+      return;
+    }
+    await _createGlowMarker(
+      manager,
+      PolygonService.toPoint(
+        GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
+      ),
+      NexusTheme.danger,
+    );
   }
 
   void _recenter() {
@@ -375,12 +518,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     final error = _error;
     if (error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(error, textAlign: TextAlign.center),
-        ),
-      );
+      return AppErrorState(message: error);
     }
 
     final location = _myLocation;
@@ -411,23 +549,61 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           ),
           viewportController: _viewportController,
           onMapCreated: _onMapCreated,
+          onMapLoadErrorListener: (event) {
+            if (mounted) {
+              setState(() => _locationNotice = 'Map failed to load: ${event.message}');
+            }
+          },
         ),
         Positioned(
           top: 12,
           left: 12,
           right: 12,
-          child: _MatchHud(
-            game: _game,
-            myRole: _myPlayer?.role,
-            eliminated: _myPlayer?.isEliminated ?? false,
-            revealActive: _revealActive,
-            secondsRemaining: _secondsRemaining,
-            hidersRemaining: _players
-                .where((p) => p.isHider && p.status == 'ACTIVE')
-                .length,
-            locationNotice: _locationNotice,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Flexible(
+                child: _BrandHud(
+                  game: _game,
+                  myRole: _myPlayer?.role,
+                  eliminated: _myPlayer?.isEliminated ?? false,
+                  revealActive: _revealActive,
+                  secondsRemaining: _secondsRemaining,
+                  hidersRemaining: _players
+                      .where((p) => p.isHider && p.status == 'ACTIVE')
+                      .length,
+                  sightingsCount: _sightings.length,
+                  locationNotice: _locationNotice,
+                  visibilityNotice: _visibilityNotice,
+                ),
+              ),
+              const SizedBox(width: 10),
+              _LegendPanel(myRole: _myPlayer?.role),
+            ],
           ),
         ),
+        if (_catchCandidates.isNotEmpty)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final candidate in _catchCandidates)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _HoldToCatchButton(
+                      key: ValueKey(candidate.hiderId),
+                      label:
+                          _profiles[candidate.hiderId]?.displayName ?? 'Hider',
+                      distanceMeters: candidate.distanceMeters,
+                      onCatch: () => _catchHider(candidate.hiderId),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         Positioned(
           right: 16,
           bottom: 16,
@@ -442,15 +618,128 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   }
 }
 
-class _MatchHud extends StatelessWidget {
-  const _MatchHud({
+/// Hold for ~5 continuous seconds to catch a nearby hider. Releasing early
+/// cancels the attempt; the server still validates the catch regardless.
+class _HoldToCatchButton extends StatefulWidget {
+  const _HoldToCatchButton({
+    super.key,
+    required this.label,
+    required this.distanceMeters,
+    required this.onCatch,
+  });
+
+  final String label;
+  final double distanceMeters;
+  final Future<void> Function() onCatch;
+
+  @override
+  State<_HoldToCatchButton> createState() => _HoldToCatchButtonState();
+}
+
+class _HoldToCatchButtonState extends State<_HoldToCatchButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 5),
+  )..addStatusListener(_onStatus);
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    if (_busy) {
+      return;
+    }
+    _controller.forward(from: 0);
+  }
+
+  void _cancel() {
+    if (_busy) {
+      return;
+    }
+    _controller.reverse();
+  }
+
+  Future<void> _onStatus(AnimationStatus status) async {
+    if (status != AnimationStatus.completed || _busy) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.onCatch();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+        _controller.value = 0;
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onLongPressStart: (_) => _start(),
+      onLongPressEnd: (_) => _cancel(),
+      onLongPressCancel: _cancel,
+      child: AppCard(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, _) => CircularProgressIndicator(
+                  strokeWidth: 2,
+                  value: _busy ? null : _controller.value,
+                  color: NexusTheme.danger,
+                  backgroundColor: NexusTheme.hairline,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Hold to catch ${widget.label} · ${widget.distanceMeters.round()}m',
+              style: NexusTheme.readout.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatClock(int totalSeconds) {
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
+/// Tactical-ops style HUD: brand mark, a short status line, and a large
+/// countdown clock — modeled directly on the reference the user provided.
+class _BrandHud extends StatelessWidget {
+  const _BrandHud({
     required this.game,
     required this.myRole,
     required this.eliminated,
     required this.revealActive,
     required this.secondsRemaining,
     required this.hidersRemaining,
+    required this.sightingsCount,
     required this.locationNotice,
+    required this.visibilityNotice,
   });
 
   final GameRecord? game;
@@ -459,82 +748,254 @@ class _MatchHud extends StatelessWidget {
   final bool revealActive;
   final int secondsRemaining;
   final int hidersRemaining;
+  final int sightingsCount;
   final String? locationNotice;
+  final String? visibilityNotice;
 
   @override
   Widget build(BuildContext context) {
     final status = game?.status;
-    final roleLabel = switch (myRole) {
-      'SEEKER' => 'Seeker',
-      'HIDER' => 'Hider',
-      _ => 'Player',
-    };
 
-    final (headline, color) = switch (status) {
+    final (subtitle, subtitleColor) = switch (status) {
       'HIDING_PHASE' => (
-        myRole == 'SEEKER'
-            ? 'Hiding phase — wait $secondsRemaining s'
-            : 'Hide! $secondsRemaining s left',
-        Colors.amberAccent,
+        myRole == 'SEEKER' ? 'HIDING PHASE' : 'HIDE NOW',
+        NexusTheme.warning,
       ),
       'ACTIVE' => (
         eliminated
-            ? 'You were caught — spectating'
+            ? 'SPECTATING'
             : myRole == 'SEEKER'
                 ? (revealActive
-                    ? 'REVEAL ACTIVE — hiders visible!'
-                    : 'Hunting — $hidersRemaining hiding')
-                : (revealActive
-                    ? 'You are exposed!'
-                    : 'Hidden — stay safe'),
+                    ? 'HIDERS VISIBLE'
+                    : 'HUNTING · $hidersRemaining HIDING')
+                : (revealActive ? 'YOU ARE EXPOSED' : 'HIDDEN'),
         eliminated
             ? Colors.white70
-            : (revealActive ? Colors.redAccent : NexusTheme.accent),
+            : (revealActive ? NexusTheme.danger : NexusTheme.accent),
       ),
-      _ => ('Starting…', Colors.white70),
+      _ => ('STARTING', Colors.white70),
     };
 
-    return Material(
-      color: NexusTheme.surface.withValues(alpha: 0.92),
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Column(
+    final clockLabel = status == 'HIDING_PHASE'
+        ? 'HIDING ENDS IN'
+        : 'MATCH ENDS IN';
+
+    return AppCard(
+      color: NexusTheme.surface.withValues(alpha: 0.9),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'NEXUS',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: 4,
+              color: NexusTheme.accent,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 2,
+              fontWeight: FontWeight.w600,
+              color: subtitleColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ColoredBox(color: NexusTheme.hairline, child: const SizedBox(height: 1, width: double.infinity)),
+          const SizedBox(height: 10),
+          Text(
+            clockLabel,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              letterSpacing: 2,
+              color: Colors.white54,
+            ),
+          ),
+          Text(
+            _formatClock(secondsRemaining),
+            style: NexusTheme.readout.copyWith(
+              fontSize: 28,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          if (status == 'ACTIVE' && myRole == 'SEEKER' && revealActive) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Sightings: $sightingsCount',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (visibilityNotice != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              visibilityNotice!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: NexusTheme.danger),
+            ),
+          ],
+          if (locationNotice != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              locationNotice!,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: NexusTheme.danger),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Static legend explaining the map's markers and zones — "YOU" adapts its
+/// color to whichever role you're actually playing this match.
+class _LegendPanel extends StatelessWidget {
+  const _LegendPanel({required this.myRole});
+
+  final String? myRole;
+
+  @override
+  Widget build(BuildContext context) {
+    final youColor = myRole == 'SEEKER' ? NexusTheme.danger : NexusTheme.accent;
+    final youRoleLabel = switch (myRole) {
+      'SEEKER' => 'SEEKER',
+      'HIDER' => 'HIDER',
+      _ => '',
+    };
+
+    return AppCard(
+      color: NexusTheme.surface.withValues(alpha: 0.9),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _LegendRow(
+            swatch: _LegendDot(color: youColor),
+            label: 'YOU',
+            sublabel: youRoleLabel.isEmpty ? null : youRoleLabel,
+          ),
+          const SizedBox(height: 8),
+          _LegendRow(
+            swatch: _LegendDot(color: NexusTheme.danger),
+            label: 'SEEKER',
+          ),
+          const SizedBox(height: 8),
+          _LegendRow(
+            swatch: _LegendRing(color: NexusTheme.accent),
+            label: 'HIDER',
+          ),
+          const SizedBox(height: 8),
+          _LegendRow(
+            swatch: _LegendOutlineSquare(color: NexusTheme.accent),
+            label: 'PLAYABLE AREA',
+          ),
+          const SizedBox(height: 8),
+          _LegendRow(
+            swatch: _LegendFilledSquare(color: NexusTheme.danger),
+            label: 'RESTRICTED',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LegendRow extends StatelessWidget {
+  const _LegendRow({required this.swatch, required this.label, this.sublabel});
+
+  final Widget swatch;
+  final String label;
+  final String? sublabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(width: 16, height: 16, child: swatch),
+        const SizedBox(width: 8),
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Icon(Icons.circle, size: 10, color: color),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    headline,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
             Text(
-              status == 'ACTIVE'
-                  ? 'Role: $roleLabel · Match ends in $secondsRemaining s'
-                  : 'Role: $roleLabel',
-              style: Theme.of(context).textTheme.bodySmall,
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                letterSpacing: 1.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
             ),
-            if (locationNotice != null) ...[
-              const SizedBox(height: 4),
+            if (sublabel != null)
               Text(
-                locationNotice!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.redAccent,
+                sublabel!,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  letterSpacing: 1.2,
+                  color: Colors.white54,
+                  fontSize: 9,
                 ),
               ),
-            ],
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
+class _LegendRing extends StatelessWidget {
+  const _LegendRing({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 2),
+      ),
+    );
+  }
+}
+
+class _LegendOutlineSquare extends StatelessWidget {
+  const _LegendOutlineSquare({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(decoration: BoxDecoration(border: Border.all(color: color, width: 2)));
+  }
+}
+
+class _LegendFilledSquare extends StatelessWidget {
+  const _LegendFilledSquare({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.35),
+        border: Border.all(color: color, width: 2),
       ),
     );
   }

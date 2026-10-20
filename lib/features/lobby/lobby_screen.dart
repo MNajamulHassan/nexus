@@ -7,6 +7,9 @@ import '../../app/theme.dart';
 import '../../core/auth/identity_providers.dart';
 import '../../core/game/game_providers.dart';
 import '../../core/game/lobby_controller.dart';
+import '../../core/widgets/app_busy_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
@@ -76,7 +79,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       ),
       body: lobby.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _LobbyError(
+        error: (error, _) => AppErrorState(
           message: error.toString(),
           onRetry: () =>
               ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh(),
@@ -232,36 +235,33 @@ class _LobbyBody extends StatelessWidget {
         const SizedBox(height: 16),
         Text('Join code', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        Material(
-          color: NexusTheme.surface,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SelectableText(
-                    game.joinCode,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      letterSpacing: 4,
-                      fontWeight: FontWeight.w700,
-                    ),
+        AppCard(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  game.joinCode,
+                  style: NexusTheme.readout.copyWith(
+                    fontSize: 28,
+                    letterSpacing: 4,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Copy join code',
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: game.joinCode));
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Join code copied')),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.copy),
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: 'Copy join code',
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: game.joinCode));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Join code copied')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 24),
@@ -320,15 +320,10 @@ class _LobbyBody extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         if (isHost) ...[
-          FilledButton(
+          AppBusyButton(
+            busy: busy,
             onPressed: snapshot.players.length >= 2 ? onStart : null,
-            child: busy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Start Match'),
+            child: const Text('Start Match'),
           ),
           if (snapshot.players.length < 2) ...[
             const SizedBox(height: 8),
@@ -340,18 +335,14 @@ class _LobbyBody extends StatelessWidget {
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: onCancel,
-            child: const Text('Cancel Lobby'),
+            child: const Text('Cancel lobby'),
           ),
         ] else
-          OutlinedButton(
+          AppBusyButton(
+            busy: busy,
+            outlined: true,
             onPressed: onLeave,
-            child: busy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Leave Lobby'),
+            child: const Text('Leave lobby'),
           ),
       ],
     );
@@ -366,13 +357,10 @@ class _RealtimeBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (status) {
-      LobbyRealtimeStatus.connected => ('Connected', Colors.greenAccent),
-      LobbyRealtimeStatus.connecting => ('Connecting…', Colors.amberAccent),
-      LobbyRealtimeStatus.reconnecting => (
-        'Reconnecting',
-        Colors.amberAccent,
-      ),
-      LobbyRealtimeStatus.error => ('Error', Colors.redAccent),
+      LobbyRealtimeStatus.connected => ('Connected', NexusTheme.success),
+      LobbyRealtimeStatus.connecting => ('Connecting…', NexusTheme.warning),
+      LobbyRealtimeStatus.reconnecting => ('Reconnecting', NexusTheme.warning),
+      LobbyRealtimeStatus.error => ('Error', NexusTheme.danger),
     };
 
     return Row(
@@ -392,19 +380,14 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: NexusTheme.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            for (var i = 0; i < children.length; i++) ...[
-              if (i > 0) const SizedBox(height: 10),
-              children[i],
-            ],
+    return AppCard(
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            children[i],
           ],
-        ),
+        ],
       ),
     );
   }
@@ -438,26 +421,3 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
-class _LobbyError extends StatelessWidget {
-  const _LobbyError({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      ),
-    );
-  }
-}

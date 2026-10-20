@@ -10,6 +10,8 @@ import '../../core/location/location_providers.dart';
 import '../../core/maps/map_models.dart';
 import '../../core/maps/map_style_service.dart';
 import '../../core/maps/polygon_service.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_state.dart';
 
 class MapEditorScreen extends ConsumerStatefulWidget {
   const MapEditorScreen({super.key});
@@ -19,8 +21,6 @@ class MapEditorScreen extends ConsumerStatefulWidget {
 }
 
 class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
-  static const _restrictedColor = Color(0xFFFF1744);
-
   final _viewportController = ViewportController();
 
   bool _loading = true;
@@ -227,9 +227,9 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
       await polygons.create(
         PolygonAnnotationOptions(
           geometry: geometry,
-          fillColor: _restrictedColor.toARGB32(),
+          fillColor: NexusTheme.danger.toARGB32(),
           fillOpacity: selected ? 0.5 : 0.32,
-          fillOutlineColor: _restrictedColor.toARGB32(),
+          fillOutlineColor: NexusTheme.danger.toARGB32(),
         ),
       );
     }
@@ -262,7 +262,7 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
 
   Color get _draftColor {
     return _mode == MapEditorMode.drawRestrictedArea
-        ? _restrictedColor
+        ? NexusTheme.danger
         : NexusTheme.accent;
   }
 
@@ -515,23 +515,27 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
 
     final error = _locationError;
     if (error != null && _location == null) {
-      return _EditorErrorState(
+      final actionLabel = switch (error.kind) {
+        LocationErrorKind.servicesDisabled => 'Open Location Settings',
+        LocationErrorKind.permissionDeniedForever => 'Open App Settings',
+        _ => null,
+      };
+      final onAction = switch (error.kind) {
+        LocationErrorKind.servicesDisabled => () {
+          ref.read(locationServiceProvider).openLocationSettings();
+        },
+        LocationErrorKind.permissionDeniedForever => () {
+          ref.read(locationServiceProvider).openAppSettings();
+        },
+        _ => null,
+      };
+      return AppErrorState(
+        icon: Icons.map_outlined,
         message: error.message,
-        actionLabel: switch (error.kind) {
-          LocationErrorKind.servicesDisabled => 'Open Location Settings',
-          LocationErrorKind.permissionDeniedForever => 'Open App Settings',
-          _ => null,
-        },
-        onAction: switch (error.kind) {
-          LocationErrorKind.servicesDisabled => () {
-            ref.read(locationServiceProvider).openLocationSettings();
-          },
-          LocationErrorKind.permissionDeniedForever => () {
-            ref.read(locationServiceProvider).openAppSettings();
-          },
-          _ => null,
-        },
         onRetry: () => _loadLocation(),
+        secondaryAction: actionLabel == null
+            ? null
+            : OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
       );
     }
 
@@ -617,13 +621,10 @@ class _StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return AppCard(
       color: NexusTheme.surface.withValues(alpha: 0.92),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Text(message, style: Theme.of(context).textTheme.bodySmall),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Text(message, style: Theme.of(context).textTheme.bodySmall),
     );
   }
 }
@@ -755,47 +756,3 @@ class _EditorControls extends StatelessWidget {
   }
 }
 
-class _EditorErrorState extends StatelessWidget {
-  const _EditorErrorState({
-    required this.message,
-    required this.onRetry,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final String message;
-  final VoidCallback onRetry;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.map_outlined,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 12),
-              OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}

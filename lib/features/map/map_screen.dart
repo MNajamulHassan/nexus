@@ -7,6 +7,8 @@ import '../../core/constants/env.dart';
 import '../../core/location/location_models.dart';
 import '../../core/location/location_providers.dart';
 import '../../core/maps/map_style_service.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_state.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -163,25 +165,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final error = _error;
     if (error != null && _location == null) {
-      return _MapErrorState(
+      final actionLabel = switch (error.kind) {
+        LocationErrorKind.servicesDisabled => 'Open Location Settings',
+        LocationErrorKind.permissionDeniedForever => 'Open App Settings',
+        _ => null,
+      };
+      final onAction = switch (error.kind) {
+        LocationErrorKind.servicesDisabled => () {
+          _openSettings(ref.read(locationServiceProvider).openLocationSettings);
+        },
+        LocationErrorKind.permissionDeniedForever => () {
+          _openSettings(ref.read(locationServiceProvider).openAppSettings);
+        },
+        _ => null,
+      };
+      return AppErrorState(
+        icon: Icons.map_outlined,
         message: error.message,
-        actionLabel: switch (error.kind) {
-          LocationErrorKind.servicesDisabled => 'Open Location Settings',
-          LocationErrorKind.permissionDeniedForever => 'Open App Settings',
-          _ => null,
-        },
-        onAction: switch (error.kind) {
-          LocationErrorKind.servicesDisabled => () {
-            _openSettings(
-              ref.read(locationServiceProvider).openLocationSettings,
-            );
-          },
-          LocationErrorKind.permissionDeniedForever => () {
-            _openSettings(ref.read(locationServiceProvider).openAppSettings);
-          },
-          _ => null,
-        },
         onRetry: () => _loadLocation(),
+        secondaryAction: actionLabel == null
+            ? null
+            : OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
       );
     }
 
@@ -259,57 +263,10 @@ class _AccuracyOverlay extends StatelessWidget {
             ? 'Accuracy unavailable'
             : 'Accuracy ${accuracyMeters!.toStringAsFixed(1)} m');
 
-    return Material(
+    return AppCard(
       color: NexusTheme.surface.withValues(alpha: 0.92),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Text(
-          message,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ),
-    );
-  }
-}
-
-class _MapErrorState extends StatelessWidget {
-  const _MapErrorState({
-    required this.message,
-    required this.onRetry,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final String message;
-  final VoidCallback onRetry;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.map_outlined, size: 48, color: Theme.of(context).colorScheme.error),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 12),
-              OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
-            ],
-          ],
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Text(message, style: Theme.of(context).textTheme.bodySmall),
     );
   }
 }

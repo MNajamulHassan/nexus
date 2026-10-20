@@ -357,6 +357,61 @@ class GameRepository {
     }
   }
 
+  Future<List<CatchCandidate>> fetchCatchCandidates(String gameId) async {
+    try {
+      final rows = await _client.rpc(
+        'fetch_catch_candidates',
+        params: {'p_game_id': gameId},
+      );
+      return [
+        for (final row in rows as List<dynamic>)
+          CatchCandidate.fromRow(Map<String, dynamic>.from(row as Map)),
+      ];
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not check for catches.');
+    }
+  }
+
+  Future<GameRecord> attemptCatch(String gameId, String hiderId) async {
+    try {
+      final raw = await _client.rpc(
+        'attempt_catch',
+        params: {'p_game_id': gameId, 'p_hider_id': hiderId},
+      );
+      return GameRecord.fromRow(_asRow(raw, 'attempt_catch'));
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.match, 'Could not catch that player.');
+    }
+  }
+
+  Future<SeekerSighting?> fetchSeekerLocation(String gameId) async {
+    try {
+      final raw = await _client.rpc(
+        'fetch_seeker_location',
+        params: {'p_game_id': gameId},
+      );
+      final rows = raw as List<dynamic>;
+      if (rows.isEmpty) {
+        return null;
+      }
+      return SeekerSighting.fromRow(
+        Map<String, dynamic>.from(rows.first as Map),
+      );
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(
+        error,
+        LobbyErrorKind.match,
+        'Could not load seeker location.',
+      );
+    }
+  }
+
   Future<List<HiderSighting>> fetchSeekerView(String gameId) async {
     try {
       final rows = await _client.rpc(
@@ -487,12 +542,32 @@ class GameRepository {
     );
   }
 
-  LobbyException _map(Object error, LobbyErrorKind kind, String fallback) {
-    if (error is SocketException || error is TimeoutException) {
-      return LobbyException(
+  /// Distinguishes "couldn't reach the server at all" (host unreachable /
+  /// connection refused — e.g. a paused Supabase project) from a plain
+  /// request timeout, since both used to collapse into the same generic
+  /// message and were impossible to tell apart on-screen.
+  LobbyException? _networkException(Object error) {
+    if (error is SocketException) {
+      return const LobbyException(
         kind: LobbyErrorKind.network,
-        message: 'Network error. Check your connection and try again.',
+        message:
+            'Could not reach the server at all. Check your connection, or '
+            'whether the Supabase project is paused.',
       );
+    }
+    if (error is TimeoutException) {
+      return const LobbyException(
+        kind: LobbyErrorKind.network,
+        message: 'Request timed out. Check your connection and try again.',
+      );
+    }
+    return null;
+  }
+
+  LobbyException _map(Object error, LobbyErrorKind kind, String fallback) {
+    final network = _networkException(error);
+    if (network != null) {
+      return network;
     }
     if (error is PostgrestException) {
       final detail = error.message.trim();
@@ -505,11 +580,9 @@ class GameRepository {
   }
 
   LobbyException _mapJoin(Object error) {
-    if (error is SocketException || error is TimeoutException) {
-      return const LobbyException(
-        kind: LobbyErrorKind.network,
-        message: 'Network error. Check your connection and try again.',
-      );
+    final network = _networkException(error);
+    if (network != null) {
+      return network;
     }
 
     if (error is PostgrestException) {
@@ -547,11 +620,9 @@ class GameRepository {
   }
 
   LobbyException _mapLeave(Object error) {
-    if (error is SocketException || error is TimeoutException) {
-      return const LobbyException(
-        kind: LobbyErrorKind.network,
-        message: 'Network error. Check your connection and try again.',
-      );
+    final network = _networkException(error);
+    if (network != null) {
+      return network;
     }
     if (error is PostgrestException) {
       final detail = error.message.toLowerCase();

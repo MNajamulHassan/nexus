@@ -59,8 +59,15 @@ class LobbyController extends AsyncNotifier<LobbyView> {
 
   void _setRealtime(LobbyRealtimeStatus status) {
     _realtime = status;
+    // Must check _disposed before touching `state` at all — unsubscribing
+    // the realtime channel during teardown can re-enter this callback
+    // synchronously, and Riverpod asserts against any `state` access
+    // (read or write) from inside that disposal call stack.
+    if (_disposed) {
+      return;
+    }
     final current = state.asData?.value;
-    if (current == null || _disposed) {
+    if (current == null) {
       return;
     }
     state = AsyncData(current.copyWith(realtime: status));

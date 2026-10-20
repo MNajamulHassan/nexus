@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/location/location_models.dart';
 import '../../core/location/location_providers.dart';
+import '../../core/widgets/app_error_state.dart';
 
 class GpsTestScreen extends ConsumerStatefulWidget {
   const GpsTestScreen({super.key});
@@ -87,20 +88,21 @@ class _GpsTestScreenState extends ConsumerState<GpsTestScreen> {
     return switch (_result) {
       null => const Center(child: Text('No location yet.')),
       LocationFix(:final location) => _LocationDetails(location: location),
-      LocationError(:final kind, :final message) => _ErrorState(
+      LocationError(:final kind, :final message) => AppErrorState(
+        icon: Icons.location_off,
         message: message,
-        actionLabel: switch (kind) {
-          LocationErrorKind.servicesDisabled => 'Open Location Settings',
-          LocationErrorKind.permissionDeniedForever => 'Open App Settings',
-          _ => null,
-        },
-        onAction: switch (kind) {
-          LocationErrorKind.servicesDisabled => () {
-            _openSettings(ref.read(locationServiceProvider).openLocationSettings);
-          },
-          LocationErrorKind.permissionDeniedForever => () {
-            _openSettings(ref.read(locationServiceProvider).openAppSettings);
-          },
+        secondaryAction: switch (kind) {
+          LocationErrorKind.servicesDisabled => OutlinedButton(
+            onPressed: () => _openSettings(
+              ref.read(locationServiceProvider).openLocationSettings,
+            ),
+            child: const Text('Open Location Settings'),
+          ),
+          LocationErrorKind.permissionDeniedForever => OutlinedButton(
+            onPressed: () =>
+                _openSettings(ref.read(locationServiceProvider).openAppSettings),
+            child: const Text('Open App Settings'),
+          ),
           _ => null,
         },
       ),
@@ -181,9 +183,8 @@ class _ValueRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label.toUpperCase(),
+            label,
             style: theme.textTheme.labelSmall?.copyWith(
-              letterSpacing: 1.2,
               color: theme.colorScheme.primary,
             ),
           ),
@@ -195,38 +196,3 @@ class _ValueRow extends StatelessWidget {
   }
 }
 
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final String message;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.location_off, size: 48, color: colors.error),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
-          ],
-        ],
-      ),
-    );
-  }
-}

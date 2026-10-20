@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app/theme.dart';
 import '../../core/auth/auth_models.dart';
 import '../../core/auth/identity_providers.dart';
+import '../../core/widgets/app_busy_button.dart';
 
 class ChooseNameScreen extends ConsumerStatefulWidget {
   const ChooseNameScreen({super.key});
@@ -105,12 +105,7 @@ class _ChooseNameScreenState extends ConsumerState<ChooseNameScreen> {
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _save(),
-              decoration: InputDecoration(
-                labelText: 'Display name',
-                filled: true,
-                fillColor: NexusTheme.surface,
-                border: const OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Display name'),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -122,15 +117,10 @@ class _ChooseNameScreenState extends ConsumerState<ChooseNameScreen> {
               ),
             ],
             const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Continue'),
+            AppBusyButton(
+              busy: _saving,
+              onPressed: _save,
+              child: const Text('Continue'),
             ),
           ],
         ),

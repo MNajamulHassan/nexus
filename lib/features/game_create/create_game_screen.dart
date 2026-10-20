@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app/theme.dart';
 import '../../core/game/game_providers.dart';
 import '../../core/maps/map_models.dart';
+import '../../core/widgets/app_busy_button.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/section_header.dart';
 import '../../models/game.dart';
 import '../../models/game_config.dart';
 
@@ -172,67 +174,83 @@ class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         children: [
-          Text('Game mode', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          SegmentedButton<GameMode>(
-            segments: [
-              for (final mode in GameMode.values)
-                ButtonSegment(
-                  value: mode,
-                  label: Text(GameConfig.modeDisplayName(mode)),
+          const SectionHeader('Mode'),
+          AppCard(
+            child: SegmentedButton<GameMode>(
+              segments: [
+                for (final mode in GameMode.values)
+                  ButtonSegment(
+                    value: mode,
+                    label: Text(GameConfig.modeDisplayName(mode)),
+                  ),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (selection) {
+                setState(() {
+                  _mode = selection.first;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+          const SectionHeader('Timing'),
+          AppCard(
+            child: Column(
+              children: [
+                _NumberField(
+                  controller: _matchDuration,
+                  label: 'Match duration (seconds)',
                 ),
-            ],
-            selected: {_mode},
-            onSelectionChanged: (selection) {
-              setState(() {
-                _mode = selection.first;
-              });
-            },
+                const SizedBox(height: 12),
+                _NumberField(
+                  controller: _hidingDuration,
+                  label: 'Hiding duration (seconds)',
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 24),
-          Text('Settings', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          _NumberField(
-            controller: _matchDuration,
-            label: 'Match duration (seconds)',
+          const SizedBox(height: 20),
+          const SectionHeader('Catch radius'),
+          AppCard(
+            child: _NumberField(
+              controller: _catchRadius,
+              label: 'Catch radius (meters)',
+              signed: false,
+              decimal: true,
+            ),
           ),
-          const SizedBox(height: 12),
-          _NumberField(
-            controller: _hidingDuration,
-            label: 'Hiding duration (seconds)',
+          const SizedBox(height: 20),
+          const SectionHeader('Reveal windows'),
+          AppCard(
+            child: Column(
+              children: [
+                _NumberField(
+                  controller: _revealInterval,
+                  label: 'Reveal interval (seconds)',
+                ),
+                const SizedBox(height: 12),
+                _NumberField(
+                  controller: _revealDuration,
+                  label: 'Reveal duration (seconds)',
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Taunts enabled'),
+                  value: _tauntsEnabled,
+                  onChanged: (value) {
+                    setState(() {
+                      _tauntsEnabled = value;
+                    });
+                  },
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          _NumberField(
-            controller: _catchRadius,
-            label: 'Catch radius (meters)',
-            signed: false,
-            decimal: true,
-          ),
-          const SizedBox(height: 12),
-          _NumberField(
-            controller: _revealInterval,
-            label: 'Reveal interval (seconds)',
-          ),
-          const SizedBox(height: 12),
-          _NumberField(
-            controller: _revealDuration,
-            label: 'Reveal duration (seconds)',
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Taunts enabled'),
-            value: _tauntsEnabled,
-            onChanged: (value) {
-              setState(() {
-                _tauntsEnabled = value;
-              });
-            },
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
+          const SectionHeader('Play area'),
           OutlinedButton(
             onPressed: _creating ? null : _selectPlayArea,
-            child: const Text('SELECT PLAY AREA'),
+            child: const Text('Select play area'),
           ),
           const SizedBox(height: 12),
           _PlayAreaSummary(result: mapResult),
@@ -246,15 +264,10 @@ class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
             ),
           ],
           const SizedBox(height: 24),
-          FilledButton(
-            onPressed: _creating ? null : _createLobby,
-            child: _creating
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('CREATE LOBBY'),
+          AppBusyButton(
+            busy: _creating,
+            onPressed: _createLobby,
+            child: const Text('Create lobby'),
           ),
         ],
       ),
@@ -288,12 +301,7 @@ class _NumberField extends StatelessWidget {
           decimal ? RegExp(r'[0-9.]') : RegExp(r'[0-9]'),
         ),
       ],
-      decoration: InputDecoration(
-        labelText: label,
-        filled: true,
-        fillColor: NexusTheme.surface,
-        border: const OutlineInputBorder(),
-      ),
+      decoration: InputDecoration(labelText: label),
     );
   }
 }
@@ -307,23 +315,18 @@ class _PlayAreaSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final selected = result != null;
 
-    return Material(
-      color: NexusTheme.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Play Area: ${selected ? 'Selected' : 'Not selected'}'),
-            const SizedBox(height: 8),
-            Text(
-              'Playable vertices: ${result?.playable.polygon.vertices.length ?? 0}',
-            ),
-            const SizedBox(height: 4),
-            Text('Restricted Zones: ${result?.restrictedZones.length ?? 0}'),
-          ],
-        ),
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(selected ? 'Play area selected' : 'No play area yet'),
+          const SizedBox(height: 8),
+          Text(
+            'Playable vertices: ${result?.playable.polygon.vertices.length ?? 0}',
+          ),
+          const SizedBox(height: 4),
+          Text('Restricted zones: ${result?.restrictedZones.length ?? 0}'),
+        ],
       ),
     );
   }

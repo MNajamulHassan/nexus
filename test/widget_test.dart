@@ -35,6 +35,11 @@ void main() {
     expect(find.text('Edit Name'), findsOneWidget);
     expect(find.text('Create Game'), findsOneWidget);
     expect(find.text('Join Game'), findsOneWidget);
+    expect(find.text('Zombie Mode (Solo)'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Debug tools'));
+    await tester.pumpAndSettle();
+
     expect(find.text('GPS Test'), findsOneWidget);
     expect(find.text('Map Test'), findsOneWidget);
     expect(find.text('Map Editor'), findsOneWidget);

@@ -22,19 +22,32 @@ class HomeScreen extends ConsumerWidget {
     });
 
     return Scaffold(
+      appBar: AppBar(
+        title: const Text(''),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Debug tools',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (route) => context.push(route),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: '/gps-test', child: Text('GPS Test')),
+              PopupMenuItem(value: '/map-test', child: Text('Map Test')),
+              PopupMenuItem(value: '/map-editor', child: Text('Map Editor')),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: ListView(
             children: [
-              const SizedBox(height: 72),
+              const SizedBox(height: 48),
               Text(
                 'NEXUS',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.displaySmall?.copyWith(
                   color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 6,
                 ),
               ),
               if (displayName != null) ...[
@@ -44,9 +57,11 @@ class HomeScreen extends ConsumerWidget {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                TextButton(
-                  onPressed: () => context.push('/choose-name'),
-                  child: const Text('Edit Name'),
+                Center(
+                  child: TextButton(
+                    onPressed: () => context.push('/choose-name'),
+                    child: const Text('Edit Name'),
+                  ),
                 ),
               ],
               const SizedBox(height: 32),
@@ -61,18 +76,8 @@ class HomeScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
               OutlinedButton(
-                onPressed: () => context.push('/gps-test'),
-                child: const Text('GPS Test'),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () => context.push('/map-test'),
-                child: const Text('Map Test'),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: () => context.push('/map-editor'),
-                child: const Text('Map Editor'),
+                onPressed: () => context.push('/zombie-mode'),
+                child: const Text('Zombie Mode (Solo)'),
               ),
             ],
           ),
