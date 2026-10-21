@@ -227,9 +227,9 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
       await polygons.create(
         PolygonAnnotationOptions(
           geometry: geometry,
-          fillColor: NexusTheme.danger.toARGB32(),
+          fillColor: NexusTheme.restricted.toARGB32(),
           fillOpacity: selected ? 0.5 : 0.32,
-          fillOutlineColor: NexusTheme.danger.toARGB32(),
+          fillOutlineColor: NexusTheme.restricted.toARGB32(),
         ),
       );
     }
@@ -262,7 +262,7 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
 
   Color get _draftColor {
     return _mode == MapEditorMode.drawRestrictedArea
-        ? NexusTheme.danger
+        ? NexusTheme.restricted
         : NexusTheme.accent;
   }
 
@@ -550,7 +550,7 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
           child: Stack(
             children: [
               MapWidget(
-                styleUri: MapStyleService.satellite,
+                styleUri: MapStyleService.satelliteStreets,
                 viewport: CameraViewportState(
                   center: PolygonService.toPoint(
                     GeoPoint(
@@ -622,9 +622,18 @@ class _StatusBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      color: NexusTheme.surface.withValues(alpha: 0.92),
+      color: NexusTheme.glassSurface,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Text(message, style: Theme.of(context).textTheme.bodySmall),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.info_outline, size: 16, color: NexusTheme.accent),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(message, style: Theme.of(context).textTheme.bodySmall),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -689,48 +698,64 @@ class _EditorControls extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: isDrawing ? null : onDrawPlayable,
-                    child: const Text('Draw Playable Area'),
+                    icon: const Icon(Icons.crop_square, size: 18),
+                    label: const Text('Draw Playable Area'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: isDrawing ? null : onAddRestricted,
-                    child: const Text('Add Restricted Area'),
+                    icon: const Icon(
+                      Icons.block,
+                      size: 18,
+                      color: NexusTheme.restricted,
+                    ),
+                    label: const Text('Add Restricted Area'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: isDrawing && canComplete ? onComplete : null,
-                    child: const Text('Complete Area'),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('Complete Area'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: canUndo ? onUndo : null,
-                    child: const Text('Undo Last Point'),
+                    icon: const Icon(Icons.undo, size: 18),
+                    label: const Text('Undo Last Point'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: isDrawing ? onCancel : null,
-                    child: const Text('Cancel Current Drawing'),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Cancel Current Drawing'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: hasPlayable ? onClearPlayable : null,
-                    child: const Text('Clear Playable Area'),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Clear Playable Area'),
                   ),
-                  OutlinedButton(
+                  OutlinedButton.icon(
                     style: buttonStyle,
                     onPressed: hasRestricted ? onDeleteRestricted : null,
-                    child: const Text('Delete Restricted Zone'),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 18,
+                      color: NexusTheme.restricted,
+                    ),
+                    label: const Text('Delete Restricted Zone'),
                   ),
-                  FilledButton(
+                  FilledButton.icon(
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 40),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
                     onPressed: canConfirm ? onConfirm : null,
-                    child: const Text('Confirm Area'),
+                    icon: const Icon(Icons.check_circle_outline, size: 18),
+                    label: const Text('Confirm Area'),
                   ),
                 ],
               ),
