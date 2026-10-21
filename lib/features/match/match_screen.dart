@@ -65,6 +65,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   String? _lastReportError;
   DateTime? _seekerSightingLastSeenAt;
 
+  GeoPoint? _selfLastDrawnPosition;
+  GeoPoint? _seekerLastDrawnPosition;
+  final Map<String, GeoPoint> _hiderLastDrawnPositions = {};
+
   static const _navIconId = 'manhunt-nav-triangle';
 
   MapboxMap? _mapboxMap;
@@ -572,6 +576,12 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     if (glowManager == null || iconManager == null) {
       return;
     }
+    final point = _stableGeoPoint(
+      _selfLastDrawnPosition,
+      GeoPoint(longitude: location.longitude, latitude: location.latitude),
+      location.accuracyMeters,
+    );
+    _selfLastDrawnPosition = point;
     await glowManager.deleteAll();
     await iconManager.deleteAll();
     final color = _myPlayer?.isSeeker == true
@@ -580,12 +590,41 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     await _createNavMarker(
       glowManager,
       iconManager,
-      PolygonService.toPoint(
-        GeoPoint(longitude: location.longitude, latitude: location.latitude),
-      ),
+      PolygonService.toPoint(point),
       color,
       location.headingDegrees ?? 0,
     );
+  }
+
+  /// Suppresses pure GPS jitter: a new fix within min(accuracy, 10)m of the
+  /// last position actually drawn is treated as "didn't move," so markers
+  /// don't visibly jump around a stationary device's noise.
+  GeoPoint _stableGeoPoint(
+    GeoPoint? lastDrawn,
+    GeoPoint next,
+    double? accuracyMeters,
+  ) {
+    if (lastDrawn == null) {
+      return next;
+    }
+    final threshold = math.min(accuracyMeters ?? 10, 10);
+    final moved = _distanceMeters(
+      lastDrawn.latitude,
+      lastDrawn.longitude,
+      next.latitude,
+      next.longitude,
+    );
+    return moved < threshold ? lastDrawn : next;
+  }
+
+  /// Simple equirectangular approximation — matches the one already used
+  /// by [_geodesicCircle] below. Good enough at match-sized distances.
+  double _distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+    const metersPerDegreeLat = 111320.0;
+    final metersPerDegreeLon = 111320.0 * math.cos(lat1 * math.pi / 180);
+    final dLat = (lat2 - lat1) * metersPerDegreeLat;
+    final dLon = (lon2 - lon1) * metersPerDegreeLon;
+    return math.sqrt(dLat * dLat + dLon * dLon);
   }
 
   Future<void> _redrawHiders() async {
@@ -595,16 +634,19 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     await manager.deleteAll();
     final seen = <String>{};
+    final stillTracked = <String>{};
     for (final sighting in _sightings) {
       seen.add(sighting.playerId);
+      stillTracked.add(sighting.playerId);
+      final point = _stableGeoPoint(
+        _hiderLastDrawnPositions[sighting.playerId],
+        GeoPoint(longitude: sighting.longitude, latitude: sighting.latitude),
+        sighting.accuracyMeters,
+      );
+      _hiderLastDrawnPositions[sighting.playerId] = point;
       await _createGlowMarker(
         manager,
-        PolygonService.toPoint(
-          GeoPoint(
-            longitude: sighting.longitude,
-            latitude: sighting.latitude,
-          ),
-        ),
+        PolygonService.toPoint(point),
         NexusTheme.accent,
         hollow: true,
       );
@@ -615,15 +657,21 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       if (!seen.add(candidate.hiderId)) {
         continue;
       }
+      stillTracked.add(candidate.hiderId);
+      final point = _stableGeoPoint(
+        _hiderLastDrawnPositions[candidate.hiderId],
+        GeoPoint(longitude: candidate.longitude, latitude: candidate.latitude),
+        null, // CatchCandidate carries no accuracy figure.
+      );
+      _hiderLastDrawnPositions[candidate.hiderId] = point;
       await _createGlowMarker(
         manager,
-        PolygonService.toPoint(
-          GeoPoint(longitude: candidate.longitude, latitude: candidate.latitude),
-        ),
+        PolygonService.toPoint(point),
         NexusTheme.accent,
         hollow: true,
       );
     }
+    _hiderLastDrawnPositions.removeWhere((id, _) => !stillTracked.contains(id));
   }
 
   Future<void> _redrawSeekerMarker() async {
@@ -632,18 +680,25 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     if (glowManager == null || iconManager == null) {
       return;
     }
-    await glowManager.deleteAll();
-    await iconManager.deleteAll();
     final seeker = _seekerSighting;
     if (seeker == null) {
+      _seekerLastDrawnPosition = null;
+      await glowManager.deleteAll();
+      await iconManager.deleteAll();
       return;
     }
+    final point = _stableGeoPoint(
+      _seekerLastDrawnPosition,
+      GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
+      null, // SeekerSighting carries no accuracy figure.
+    );
+    _seekerLastDrawnPosition = point;
+    await glowManager.deleteAll();
+    await iconManager.deleteAll();
     await _createNavMarker(
       glowManager,
       iconManager,
-      PolygonService.toPoint(
-        GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
-      ),
+      PolygonService.toPoint(point),
       NexusTheme.danger,
       180,
     );
