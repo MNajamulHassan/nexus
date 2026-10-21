@@ -250,8 +250,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         return AlertDialog(
           title: const Text('Remove player?'),
           content: Text(
-            'Remove ${player.displayName} from this lobby? They cannot '
-            'rejoin with the same code.',
+            'Remove ${player.displayName} from this lobby? They can rejoin '
+            'later with the same join code.',
           ),
           actions: [
             TextButton(
