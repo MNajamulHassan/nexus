@@ -363,7 +363,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         DateTime.now().difference(lastReal) < const Duration(seconds: 4)) {
       return;
     }
-    await _reportLocation(location);
+    // client_timestamp is display-only, so refreshing it here keeps the
+    // marker-age debug readout meaningful instead of showing a timestamp
+    // that's minutes stale while the heartbeat keeps the server row fresh.
+    final refreshed = AppLocation(
+      latitude: location.latitude,
+      longitude: location.longitude,
+      timestamp: DateTime.now(),
+      precision: location.precision,
+      accuracyMeters: location.accuracyMeters,
+      altitudeMeters: location.altitudeMeters,
+      speedMetersPerSecond: location.speedMetersPerSecond,
+      headingDegrees: location.headingDegrees,
+    );
+    await _reportLocation(refreshed);
   }
 
   Future<void> _reportLocation(AppLocation location) async {
