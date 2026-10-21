@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../../app/debug_config.dart';
 import '../../app/theme.dart';
 import '../../core/auth/auth_models.dart';
 import '../../core/auth/identity_providers.dart';
@@ -851,6 +852,48 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     return (elapsed % game.revealIntervalSeconds) < game.revealDurationSeconds;
   }
 
+  /// `acc` own GPS accuracy, `sent` seconds since the last successful
+  /// report, `marker` age of the other role's last-known position (seeker
+  /// sighting for a hider; freshest hider sighting for a seeker), and the
+  /// last report error, if any.
+  String _gpsDebugLine() {
+    final accuracy = _myLocation?.accuracyMeters;
+    final accuracyText = accuracy == null
+        ? '—'
+        : '${accuracy.toStringAsFixed(0)}m';
+
+    final okAt = _lastReportOkAt;
+    final reportAgeText = okAt == null
+        ? '—'
+        : '${DateTime.now().difference(okAt).inSeconds}s';
+
+    final markerAge = _otherRoleMarkerAgeSeconds;
+    final markerText = markerAge == null ? '—' : '${markerAge}s';
+
+    final error = _lastReportError;
+    final errorText = error == null
+        ? 'none'
+        : (error.length > 36 ? '${error.substring(0, 36)}…' : error);
+
+    return 'acc $accuracyText · sent $reportAgeText ago · marker $markerText · $errorText';
+  }
+
+  int? get _otherRoleMarkerAgeSeconds {
+    if (_myPlayer?.isHider == true) {
+      final timestamp = _seekerSighting?.clientTimestamp;
+      return timestamp == null
+          ? null
+          : DateTime.now().difference(timestamp).inSeconds;
+    }
+    if (_myPlayer?.isSeeker == true && _sightings.isNotEmpty) {
+      final newest = _sightings
+          .map((s) => s.clientTimestamp)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      return DateTime.now().difference(newest).inSeconds;
+    }
+    return null;
+  }
+
   int get _secondsRemaining {
     final game = _game;
     if (game == null) {
@@ -926,30 +969,57 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             curve: Curves.easeInOut,
             child: IgnorePointer(
               ignoring: _showIntro,
-              child: Row(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(
-                    child: _BrandHud(
-                      game: _game,
-                      myRole: _myPlayer?.role,
-                      eliminated: _myPlayer?.isEliminated ?? false,
-                      revealActive: _revealActive,
-                      secondsRemaining: _secondsRemaining,
-                      hidersRemaining: _players
-                          .where((p) => p.isHider && p.status == 'ACTIVE')
-                          .length,
-                      sightingsCount: _sightings.length,
-                      locationNotice: _locationNotice,
-                      visibilityNotice: _visibilityNotice,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Flexible(
+                        child: _BrandHud(
+                          game: _game,
+                          myRole: _myPlayer?.role,
+                          eliminated: _myPlayer?.isEliminated ?? false,
+                          revealActive: _revealActive,
+                          secondsRemaining: _secondsRemaining,
+                          hidersRemaining: _players
+                              .where((p) => p.isHider && p.status == 'ACTIVE')
+                              .length,
+                          sightingsCount: _sightings.length,
+                          locationNotice: _locationNotice,
+                          visibilityNotice: _visibilityNotice,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _LegendPanel(
+                        myRole: _myPlayer?.role,
+                        shown: _showLegend,
+                        onToggle: () =>
+                            setState(() => _showLegend = !_showLegend),
+                      ),
+                    ],
+                  ),
+                  if (showGpsDebug) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        _gpsDebugLine(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _LegendPanel(
-                    myRole: _myPlayer?.role,
-                    shown: _showLegend,
-                    onToggle: () => setState(() => _showLegend = !_showLegend),
-                  ),
+                  ],
                 ],
               ),
             ),
