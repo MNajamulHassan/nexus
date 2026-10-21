@@ -182,6 +182,21 @@ class GameRepository {
     }
   }
 
+  /// Distinguishes "I was kicked" from "the host cancelled this lobby" once
+  /// the games row itself is no longer readable to the caller (kick_player
+  /// deletes their game_players row, which is what games_select_host_or_member
+  /// keys off of).
+  Future<bool> wasKicked(String gameId) async {
+    try {
+      final raw = await _client.rpc('was_kicked', params: {'p_game_id': gameId});
+      return raw == true;
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.load, 'Could not check lobby status.');
+    }
+  }
+
   Future<GameRecord> fetchGame(String gameId) async {
     try {
       final row = await _client
@@ -395,7 +410,9 @@ class GameRepository {
   Future<GameRecord> startGame(String gameId) async {
     try {
       final raw = await _client.rpc('start_game', params: {'p_game_id': gameId});
-      return GameRecord.fromRow(_asRow(raw, 'start_game'));
+      final game = GameRecord.fromRow(_asRow(raw, 'start_game'));
+      await _broadcastLobbyChanged(gameId, 'started');
+      return game;
     } on LobbyException {
       rethrow;
     } catch (error) {
