@@ -63,6 +63,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   DateTime? _lastRealFixSentAt;
   DateTime? _lastReportOkAt;
   String? _lastReportError;
+  DateTime? _seekerSightingLastSeenAt;
 
   static const _navIconId = 'manhunt-nav-triangle';
 
@@ -236,7 +237,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           return;
         }
         setState(() {
-          _seekerSighting = seekerSighting;
+          if (seekerSighting != null) {
+            _seekerSighting = seekerSighting;
+            _seekerSightingLastSeenAt = DateTime.now();
+          } else {
+            // The seeker's last fix may just be briefly stale (e.g. a
+            // stationary device), not actually gone — keep showing it for
+            // a grace window instead of vanishing the marker instantly.
+            final lastSeenAt = _seekerSightingLastSeenAt;
+            if (lastSeenAt == null ||
+                DateTime.now().difference(lastSeenAt) >
+                    const Duration(seconds: 45)) {
+              _seekerSighting = null;
+            }
+          }
           _visibilityNotice = null;
         });
       }
