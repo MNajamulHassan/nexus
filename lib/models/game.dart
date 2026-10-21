@@ -16,6 +16,8 @@ class GameRecord {
     required this.tauntsEnabled,
     this.startedAt,
     this.endedAt,
+    this.seekerMode = 'RANDOM',
+    this.seekerPlayerId,
   });
 
   final String id;
@@ -32,6 +34,11 @@ class GameRecord {
   final int revealIntervalSeconds;
   final int revealDurationSeconds;
   final bool tauntsEnabled;
+
+  /// 'RANDOM' or 'MANUAL'. Defaults to 'RANDOM' when the row predates this
+  /// column (e.g. before the lobby-management migration is applied).
+  final String seekerMode;
+  final String? seekerPlayerId;
 
   factory GameRecord.fromRow(Map<String, dynamic> row) {
     final mode = GameConfig.modeFromWire(row['mode'] as String? ?? '');
@@ -54,10 +61,14 @@ class GameRecord {
       revealIntervalSeconds: _asInt(row['reveal_interval_seconds']),
       revealDurationSeconds: _asInt(row['reveal_duration_seconds']),
       tauntsEnabled: row['taunts_enabled'] as bool? ?? true,
+      seekerMode: row['seeker_mode'] as String? ?? 'RANDOM',
+      seekerPlayerId: row['seeker_player_id'] as String?,
     );
   }
 
   String get modeLabel => GameConfig.modeDisplayName(mode);
+
+  bool get seekerIsManual => seekerMode == 'MANUAL';
 }
 
 class GamePlayerRecord {
@@ -232,6 +243,7 @@ enum LobbyErrorKind {
   auth,
   network,
   match,
+  settings,
   unknown,
 }
 

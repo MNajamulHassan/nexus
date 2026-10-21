@@ -122,6 +122,66 @@ class GameRepository {
     }
   }
 
+  /// Host-only. Zones aren't part of this RPC — replaceGameZones stays the
+  /// only way to change the play area.
+  Future<GameRecord> updateGameSettings({
+    required String gameId,
+    required GameMode mode,
+    required int hidingDurationSeconds,
+    required int matchDurationSeconds,
+    required double catchRadiusMeters,
+    required int revealIntervalSeconds,
+    required int revealDurationSeconds,
+    required bool tauntsEnabled,
+    required String seekerMode,
+    String? seekerPlayerId,
+  }) async {
+    try {
+      final raw = await _client.rpc(
+        'update_game_settings',
+        params: {
+          'p_game_id': gameId,
+          'p_mode': GameConfig.modeToWire(mode),
+          'p_hiding_duration_seconds': hidingDurationSeconds,
+          'p_match_duration_seconds': matchDurationSeconds,
+          'p_catch_radius_meters': catchRadiusMeters,
+          'p_reveal_interval_seconds': revealIntervalSeconds,
+          'p_reveal_duration_seconds': revealDurationSeconds,
+          'p_taunts_enabled': tauntsEnabled,
+          'p_settings': <String, dynamic>{},
+          'p_seeker_mode': seekerMode,
+          'p_seeker_player_id': seekerPlayerId,
+        },
+      );
+      final game = GameRecord.fromRow(_asRow(raw, 'update_game_settings'));
+      await _broadcastLobbyChanged(gameId, 'settings_changed');
+      return game;
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(error, LobbyErrorKind.settings, 'Could not save settings.');
+    }
+  }
+
+  /// Host-only.
+  Future<void> kickPlayer(String gameId, String playerId) async {
+    try {
+      await _client.rpc(
+        'kick_player',
+        params: {'p_game_id': gameId, 'p_player_id': playerId},
+      );
+      await _broadcastLobbyChanged(gameId, 'kicked');
+    } on LobbyException {
+      rethrow;
+    } catch (error) {
+      throw _map(
+        error,
+        LobbyErrorKind.settings,
+        'Could not remove that player.',
+      );
+    }
+  }
+
   Future<GameRecord> fetchGame(String gameId) async {
     try {
       final row = await _client
