@@ -10,7 +10,6 @@ import '../../core/location/location_providers.dart';
 import '../../core/maps/map_models.dart';
 import '../../core/maps/map_style_service.dart';
 import '../../core/maps/polygon_service.dart';
-import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_error_state.dart';
 
 class MapEditorScreen extends ConsumerStatefulWidget {
@@ -550,6 +549,7 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
           child: Stack(
             children: [
               MapWidget(
+                key: const ValueKey('map-editor-map'),
                 styleUri: MapStyleService.satelliteStreets,
                 viewport: CameraViewportState(
                   center: PolygonService.toPoint(
@@ -563,13 +563,6 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
                 viewportController: _viewportController,
                 onMapCreated: _onMapCreated,
               ),
-              if (_status != null)
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  right: 12,
-                  child: _StatusBanner(message: _status!),
-                ),
               Positioned(
                 right: 16,
                 bottom: 16,
@@ -591,6 +584,7 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
           ),
         ),
         _EditorControls(
+          status: _status,
           isDrawing: _isDrawing,
           canComplete: PolygonService.canComplete(_draftVertices),
           canUndo: _draftVertices.isNotEmpty,
@@ -614,32 +608,44 @@ class _MapEditorScreenState extends ConsumerState<MapEditorScreen> {
   }
 }
 
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      color: NexusTheme.glassSurface,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.info_outline, size: 16, color: NexusTheme.accent),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(message, style: Theme.of(context).textTheme.bodySmall),
-          ),
+/// Exposes the compact controls panel for widget tests without needing the
+/// real map/location dependencies _MapEditorScreenState pulls in.
+@visibleForTesting
+Widget buildEditorControlsForTest({String? status}) {
+  return _EditorControls(
+    status: status,
+    isDrawing: false,
+    canComplete: false,
+    canUndo: true,
+    hasPlayable: true,
+    hasRestricted: true,
+    canConfirm: true,
+    restricted: const [
+      MapPolygon(
+        id: 'zone-1',
+        vertices: [
+          GeoPoint(longitude: 0, latitude: 0),
+          GeoPoint(longitude: 0, latitude: 1),
+          GeoPoint(longitude: 1, latitude: 0),
         ],
       ),
-    );
-  }
+    ],
+    selectedRestrictedId: null,
+    onDrawPlayable: () {},
+    onAddRestricted: () {},
+    onComplete: () {},
+    onUndo: () {},
+    onCancel: () {},
+    onClearPlayable: () {},
+    onDeleteRestricted: () {},
+    onSelectRestricted: (_) {},
+    onConfirm: () {},
+  );
 }
 
 class _EditorControls extends StatelessWidget {
   const _EditorControls({
+    required this.status,
     required this.isDrawing,
     required this.canComplete,
     required this.canUndo,
@@ -659,6 +665,7 @@ class _EditorControls extends StatelessWidget {
     required this.onConfirm,
   });
 
+  final String? status;
   final bool isDrawing;
   final bool canComplete;
   final bool canUndo;
@@ -679,103 +686,145 @@ class _EditorControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final buttonStyle = OutlinedButton.styleFrom(
-      minimumSize: const Size(0, 40),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-    );
-
-    return Material(
-      color: NexusTheme.surface,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: isDrawing ? null : onDrawPlayable,
-                    icon: const Icon(Icons.crop_square, size: 18),
-                    label: const Text('Draw Playable Area'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: isDrawing ? null : onAddRestricted,
-                    icon: const Icon(
-                      Icons.block,
-                      size: 18,
-                      color: NexusTheme.restricted,
-                    ),
-                    label: const Text('Add Restricted Area'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: isDrawing && canComplete ? onComplete : null,
-                    icon: const Icon(Icons.check, size: 18),
-                    label: const Text('Complete Area'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: canUndo ? onUndo : null,
-                    icon: const Icon(Icons.undo, size: 18),
-                    label: const Text('Undo Last Point'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: isDrawing ? onCancel : null,
-                    icon: const Icon(Icons.close, size: 18),
-                    label: const Text('Cancel Current Drawing'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: hasPlayable ? onClearPlayable : null,
-                    icon: const Icon(Icons.delete_outline, size: 18),
-                    label: const Text('Clear Playable Area'),
-                  ),
-                  OutlinedButton.icon(
-                    style: buttonStyle,
-                    onPressed: hasRestricted ? onDeleteRestricted : null,
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 18,
-                      color: NexusTheme.restricted,
-                    ),
-                    label: const Text('Delete Restricted Zone'),
-                  ),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    onPressed: canConfirm ? onConfirm : null,
-                    icon: const Icon(Icons.check_circle_outline, size: 18),
-                    label: const Text('Confirm Area'),
-                  ),
-                ],
-              ),
-              if (restricted.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (var i = 0; i < restricted.length; i++)
-                      ChoiceChip(
-                        label: Text('Restricted ${i + 1}'),
-                        selected: restricted[i].id == selectedRestrictedId,
-                        onSelected: (_) => onSelectRestricted(restricted[i].id),
+    // Compact icon+short-label actions instead of full-width labelled
+    // buttons — those used to wrap across 5-6 rows at 360dp wide, pushing
+    // the controls panel to ~70% of the screen and leaving almost nothing
+    // for the map. Capped height keeps that from happening again even if
+    // more actions are added later.
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.3,
+      ),
+      child: Material(
+        color: NexusTheme.surface,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (status != null) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: NexusTheme.accent,
                       ),
-                  ],
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          status!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                SizedBox(
+                  height: 40,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
+                      _CompactAction(
+                        icon: Icons.crop_square,
+                        label: 'Playable',
+                        onPressed: isDrawing ? null : onDrawPlayable,
+                      ),
+                      _CompactAction(
+                        icon: Icons.block,
+                        iconColor: NexusTheme.restricted,
+                        label: 'Restricted',
+                        onPressed: isDrawing ? null : onAddRestricted,
+                      ),
+                      _CompactAction(
+                        icon: Icons.check,
+                        label: 'Complete',
+                        onPressed: isDrawing && canComplete
+                            ? onComplete
+                            : null,
+                      ),
+                      _CompactAction(
+                        icon: Icons.undo,
+                        label: 'Undo',
+                        onPressed: canUndo ? onUndo : null,
+                      ),
+                      _CompactAction(
+                        icon: Icons.close,
+                        label: 'Cancel',
+                        onPressed: isDrawing ? onCancel : null,
+                      ),
+                      _CompactAction(
+                        icon: Icons.delete_outline,
+                        label: 'Clear',
+                        onPressed: hasPlayable ? onClearPlayable : null,
+                      ),
+                      _CompactAction(
+                        icon: Icons.delete_outline,
+                        iconColor: NexusTheme.restricted,
+                        label: 'Delete zone',
+                        onPressed: hasRestricted ? onDeleteRestricted : null,
+                      ),
+                      for (var i = 0; i < restricted.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('Zone ${i + 1}'),
+                            selected: restricted[i].id == selectedRestrictedId,
+                            onSelected: (_) =>
+                                onSelectRestricted(restricted[i].id),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: canConfirm ? onConfirm : null,
+                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Confirm Area'),
                 ),
               ],
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// One compact icon+short-label action in the horizontally scrolling row.
+class _CompactAction extends StatelessWidget {
+  const _CompactAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.iconColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          textStyle: const TextStyle(fontSize: 12),
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16, color: iconColor),
+        label: Text(label),
       ),
     );
   }
