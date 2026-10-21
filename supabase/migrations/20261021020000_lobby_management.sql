@@ -30,30 +30,42 @@
 --      would leave it directly queryable via PostgREST without an
 --      explicit revoke. Only the SECURITY DEFINER functions below (which
 --      run as the table owner) can read or write it.
---   c) update_game_settings: host-only, lobby-only, re-validates the same
+--   c) was_kicked: lets a client distinguish "I was kicked" from "the host
+--      cancelled this lobby" after kick_player makes the games row
+--      unreadable to them (see report Step 1 — deleting their
+--      game_players row makes is_game_member false, so
+--      games_select_host_or_member blocks their SELECT entirely; they
+--      never get to see a game_players list that's merely missing their
+--      own row).
+--   d) update_game_settings: host-only, lobby-only, re-validates the same
 --      bounds create_game already enforces (mode, settings object; the
 --      table's own CHECK constraints cover timing/catch-radius positivity
 --      on UPDATE the same as they do on INSERT). Host included among valid
 --      MANUAL seeker choices because the host already has a game_players
---      row from create_game.
---   d) kick_player: host-only, lobby-only, cannot target self or a
+--      row from create_game. p_settings is validated but NOT written (see
+--      the inline comment at the UPDATE) — the only caller today always
+--      sends '{}', which would otherwise silently wipe any existing
+--      settings on every edit.
+--   e) kick_player: host-only, lobby-only, cannot target self or a
 --      non-member; clears games.seeker_player_id if the kicked player was
 --      the chosen seeker.
---   e) leave_game: identical to the current function, plus clearing
+--   f) leave_game: identical to the current function, plus clearing
 --      seeker_player_id if the leaver was the chosen seeker.
---   f) start_game: identical to the current function, plus: in MANUAL
+--   g) start_game: identical to the current function, plus: in MANUAL
 --      mode, use games.seeker_player_id as the seeker (raising if it's
 --      null or no longer a member) instead of the random pick; RANDOM mode
 --      is untouched.
---   g) join_game: identical to the current function (incl. the
+--   h) join_game: identical to the current function (incl. the
 --      security-hardening max_players check), plus: raise if the caller is
 --      in game_kicked_players for this game, checked before the existing
 --      idempotent already-a-member return.
---   h) Every function: security definer, set search_path = public, EXECUTE
+--   i) Every function: security definer, set search_path = public, EXECUTE
 --      revoked from public/anon, granted to authenticated. Full signatures
---      used in every revoke/grant. update_game_settings and kick_player
---      are dropped first (new functions, but guards against a prior
---      partial apply leaving a different signature behind); leave_game,
+--      used in every revoke/grant. was_kicked is `language sql stable`
+--      (matching is_game_member/is_game_host's style); the rest are
+--      plpgsql. was_kicked, update_game_settings, and kick_player are
+--      dropped first (new functions, but guards against a prior partial
+--      apply leaving a different signature behind); leave_game,
 --      start_game, and join_game keep their existing signature and return
 --      type, so create or replace is sufficient for those three.
 
@@ -90,7 +102,25 @@ alter table public.game_kicked_players enable row level security;
 revoke all on table public.game_kicked_players from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
--- (c) update_game_settings: host-only settings edit, including seeker mode.
+-- (c) was_kicked.
+-- ---------------------------------------------------------------------------
+drop function if exists public.was_kicked(uuid);
+
+create function public.was_kicked(p_game_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.game_kicked_players
+    where game_id = p_game_id and player_id = auth.uid()
+  );
+$$;
+
+-- ---------------------------------------------------------------------------
+-- (d) update_game_settings: host-only settings edit, including seeker mode.
 -- ---------------------------------------------------------------------------
 drop function if exists public.update_game_settings(
   uuid, text, integer, integer, double precision, integer, integer,
@@ -165,6 +195,12 @@ begin
     v_seeker_id := null;
   end if;
 
+  -- p_settings is validated above but deliberately not written: the only
+  -- caller today (the lobby's Edit Settings sheet) always sends '{}', since
+  -- nothing in the UI reads or edits the existing settings object, so
+  -- applying it here would silently wipe out whatever create_game (or a
+  -- future caller) already stored. The parameter stays, validated, for
+  -- when a real caller needs it.
   update public.games
   set mode = p_mode,
       hiding_duration_seconds = p_hiding_duration_seconds,
@@ -173,7 +209,6 @@ begin
       reveal_interval_seconds = p_reveal_interval_seconds,
       reveal_duration_seconds = p_reveal_duration_seconds,
       taunts_enabled = coalesce(p_taunts_enabled, true),
-      settings = p_settings,
       seeker_mode = p_seeker_mode,
       seeker_player_id = v_seeker_id
   where id = p_game_id
@@ -184,7 +219,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- (d) kick_player: host-only removal.
+-- (e) kick_player: host-only removal.
 -- ---------------------------------------------------------------------------
 drop function if exists public.kick_player(uuid, uuid);
 
@@ -245,7 +280,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- (e) leave_game: unchanged behaviour, plus clearing a manual seeker pick.
+-- (f) leave_game: unchanged behaviour, plus clearing a manual seeker pick.
 -- ---------------------------------------------------------------------------
 create or replace function public.leave_game(p_game_id uuid)
 returns void
@@ -290,7 +325,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- (f) start_game: unchanged behaviour, plus a MANUAL-mode seeker pick.
+-- (g) start_game: unchanged behaviour, plus a MANUAL-mode seeker pick.
 -- ---------------------------------------------------------------------------
 create or replace function public.start_game(p_game_id uuid)
 returns public.games
@@ -363,7 +398,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- (g) join_game: unchanged behaviour, plus refusing a kicked player's rejoin.
+-- (h) join_game: unchanged behaviour, plus refusing a kicked player's rejoin.
 -- ---------------------------------------------------------------------------
 create or replace function public.join_game(p_join_code text)
 returns public.game_players
@@ -432,7 +467,7 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- (h) Grants. Full signatures; revoke from public/anon, grant to authenticated.
+-- (i) Grants. Full signatures; revoke from public/anon, grant to authenticated.
 -- ---------------------------------------------------------------------------
 revoke execute on function public.update_game_settings(
   uuid, text, integer, integer, double precision, integer, integer,
@@ -454,5 +489,8 @@ grant execute on function public.start_game(uuid) to authenticated;
 
 revoke execute on function public.join_game(text) from public, anon;
 grant execute on function public.join_game(text) to authenticated;
+
+revoke execute on function public.was_kicked(uuid) from public, anon;
+grant execute on function public.was_kicked(uuid) to authenticated;
 
 commit;

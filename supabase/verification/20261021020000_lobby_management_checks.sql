@@ -11,7 +11,8 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname in (
-    'update_game_settings', 'kick_player', 'leave_game', 'start_game', 'join_game'
+    'was_kicked', 'update_game_settings', 'kick_player', 'leave_game',
+    'start_game', 'join_game'
   )
 order by p.proname;
 
@@ -27,7 +28,8 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname in (
-    'update_game_settings', 'kick_player', 'leave_game', 'start_game', 'join_game'
+    'was_kicked', 'update_game_settings', 'kick_player', 'leave_game',
+    'start_game', 'join_game'
   )
   and has_function_privilege('anon', p.oid, 'execute');
 
@@ -38,7 +40,8 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname in (
-    'update_game_settings', 'kick_player', 'leave_game', 'start_game', 'join_game'
+    'was_kicked', 'update_game_settings', 'kick_player', 'leave_game',
+    'start_game', 'join_game'
   )
 group by p.proname
 having count(*) > 1;
