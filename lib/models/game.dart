@@ -136,21 +136,26 @@ class HiderSighting {
   }
 }
 
-/// The seeker's live position, always visible to hiders while the hunt is
+/// A seeker's live position, always visible to hiders while the hunt is
 /// active — the opposite of [HiderSighting], which is reveal-window-gated.
+/// In Infected mode more than one player can hold this role at once, so a
+/// hider may see a whole list of these rather than a single one.
 class SeekerSighting {
   const SeekerSighting({
+    required this.seekerId,
     required this.latitude,
     required this.longitude,
     required this.clientTimestamp,
   });
 
+  final String seekerId;
   final double latitude;
   final double longitude;
   final DateTime clientTimestamp;
 
   factory SeekerSighting.fromRow(Map<String, dynamic> row) {
     return SeekerSighting(
+      seekerId: row['seeker_id'] as String,
       latitude: _asDouble(row['latitude']),
       longitude: _asDouble(row['longitude']),
       clientTimestamp: DateTime.parse(row['client_timestamp'] as String),

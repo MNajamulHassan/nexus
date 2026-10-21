@@ -21,6 +21,7 @@ import '../../core/maps/polygon_service.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
+import '../../models/game_config.dart';
 
 class MatchScreen extends ConsumerStatefulWidget {
   const MatchScreen({super.key, required this.gameId});
@@ -44,7 +45,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   List<GamePlayerRecord> _players = const [];
   List<GameZone> _zones = const [];
   List<HiderSighting> _sightings = const [];
-  SeekerSighting? _seekerSighting;
+  final Map<String, SeekerSighting> _seekerSightings = {};
   List<CatchCandidate> _catchCandidates = const [];
   Map<String, PlayerProfile> _profiles = const {};
   AppLocation? _myLocation;
@@ -64,10 +65,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   DateTime? _lastRealFixSentAt;
   DateTime? _lastReportOkAt;
   String? _lastReportError;
-  DateTime? _seekerSightingLastSeenAt;
+  final Map<String, DateTime> _seekerSightingLastSeenAt = {};
 
   GeoPoint? _selfLastDrawnPosition;
-  GeoPoint? _seekerLastDrawnPosition;
+  final Map<String, GeoPoint> _seekerLastDrawnPositions = {};
   final Map<String, GeoPoint> _hiderLastDrawnPositions = {};
 
   static const _navIconId = 'manhunt-nav-triangle';
@@ -204,6 +205,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         .where((p) => p.isEliminated)
         .map((p) => p.playerId)
         .toSet();
+    final previouslyHiderIds = _players
+        .where((p) => p.isHider)
+        .map((p) => p.playerId)
+        .toSet();
     setState(() {
       _game = game;
       _players = players;
@@ -217,6 +222,23 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       _showCatchBanner('$name was caught!');
     }
 
+    if (game.mode == GameMode.infected) {
+      final newlyInfected = players
+          .where((p) => p.isSeeker && previouslyHiderIds.contains(p.playerId))
+          .toList();
+      if (newlyInfected.isNotEmpty) {
+        final myId = _userId;
+        if (myId != null && newlyInfected.any((p) => p.playerId == myId)) {
+          _showCatchBanner('You were infected - you are now a seeker');
+        } else {
+          final name =
+              _profiles[newlyInfected.first.playerId]?.displayName ??
+              'A hider';
+          _showCatchBanner('$name was infected');
+        }
+      }
+    }
+
     if (game.status == 'FINISHED' || game.status == 'CLOSED') {
       _goToResults();
       return;
@@ -224,6 +246,14 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
 
     final userId = _userId;
     final mine = userId == null ? null : _lookup(players, userId);
+    if (mine?.isHider != true) {
+      // Stale leftovers from a hider stint that ended (role flipped to
+      // SEEKER, or the match ended) — nothing keeps these fresh once we
+      // stop polling fetchSeekerLocation, so drop them instead of letting
+      // _redrawSeekerMarkers keep drawing a frozen last-known position.
+      _seekerSightings.clear();
+      _seekerSightingLastSeenAt.clear();
+    }
     try {
       if (mine?.isSeeker == true && game.status == 'ACTIVE') {
         final sightings = await repo.fetchSeekerView(widget.gameId);
@@ -237,24 +267,32 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
           _visibilityNotice = null;
         });
       } else if (mine?.isHider == true && game.status == 'ACTIVE') {
-        final seekerSighting = await repo.fetchSeekerLocation(widget.gameId);
+        final seekerSightings = await repo.fetchSeekerLocation(widget.gameId);
         if (!mounted) {
           return;
         }
         setState(() {
-          if (seekerSighting != null) {
-            _seekerSighting = seekerSighting;
-            _seekerSightingLastSeenAt = DateTime.now();
-          } else {
-            // The seeker's last fix may just be briefly stale (e.g. a
-            // stationary device), not actually gone — keep showing it for
-            // a grace window instead of vanishing the marker instantly.
-            final lastSeenAt = _seekerSightingLastSeenAt;
-            if (lastSeenAt == null ||
-                DateTime.now().difference(lastSeenAt) >
-                    const Duration(seconds: 45)) {
-              _seekerSighting = null;
-            }
+          final now = DateTime.now();
+          final seenNow = <String>{};
+          for (final sighting in seekerSightings) {
+            seenNow.add(sighting.seekerId);
+            _seekerSightings[sighting.seekerId] = sighting;
+            _seekerSightingLastSeenAt[sighting.seekerId] = now;
+          }
+          // A seeker's last fix may just be briefly stale (e.g. a
+          // stationary device), not actually gone — keep showing them for
+          // a grace window instead of vanishing the marker instantly.
+          final stale = _seekerSightingLastSeenAt.entries
+              .where(
+                (entry) =>
+                    !seenNow.contains(entry.key) &&
+                    now.difference(entry.value) > const Duration(seconds: 45),
+              )
+              .map((entry) => entry.key)
+              .toList();
+          for (final id in stale) {
+            _seekerSightings.remove(id);
+            _seekerSightingLastSeenAt.remove(id);
           }
           _visibilityNotice = null;
         });
@@ -267,8 +305,15 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         setState(() => _visibilityNotice = '$error');
       }
     }
+    final myLocation = _myLocation;
+    if (myLocation != null) {
+      // Role (and therefore marker colour / catch-radius visibility) may
+      // have just changed above; redraw now instead of waiting for the
+      // next real GPS fix or heartbeat.
+      unawaited(_showSelfMarker(myLocation));
+    }
     unawaited(_redrawHiders());
-    unawaited(_redrawSeekerMarker());
+    unawaited(_redrawSeekerMarkers());
     unawaited(_drawCatchRadius());
   }
 
@@ -427,7 +472,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
       await _showSelfMarker(location);
     }
     await _redrawHiders();
-    await _redrawSeekerMarker();
+    await _redrawSeekerMarkers();
     await _drawCatchRadius();
   }
 
@@ -688,33 +733,35 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     _hiderLastDrawnPositions.removeWhere((id, _) => !stillTracked.contains(id));
   }
 
-  Future<void> _redrawSeekerMarker() async {
+  /// One marker per current seeker — usually one (Hide & Seek), possibly
+  /// several (Infected).
+  Future<void> _redrawSeekerMarkers() async {
     final glowManager = _seekerMarkerManager;
     final iconManager = _seekerIconManager;
     if (glowManager == null || iconManager == null) {
       return;
     }
-    final seeker = _seekerSighting;
-    if (seeker == null) {
-      _seekerLastDrawnPosition = null;
-      await glowManager.deleteAll();
-      await iconManager.deleteAll();
-      return;
-    }
-    final point = _stableGeoPoint(
-      _seekerLastDrawnPosition,
-      GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
-      null, // SeekerSighting carries no accuracy figure.
-    );
-    _seekerLastDrawnPosition = point;
     await glowManager.deleteAll();
     await iconManager.deleteAll();
-    await _createNavMarker(
-      glowManager,
-      iconManager,
-      PolygonService.toPoint(point),
-      NexusTheme.danger,
-      180,
+    final stillTracked = <String>{};
+    for (final seeker in _seekerSightings.values) {
+      stillTracked.add(seeker.seekerId);
+      final point = _stableGeoPoint(
+        _seekerLastDrawnPositions[seeker.seekerId],
+        GeoPoint(longitude: seeker.longitude, latitude: seeker.latitude),
+        null, // SeekerSighting carries no accuracy figure.
+      );
+      _seekerLastDrawnPositions[seeker.seekerId] = point;
+      await _createNavMarker(
+        glowManager,
+        iconManager,
+        PolygonService.toPoint(point),
+        NexusTheme.danger,
+        180,
+      );
+    }
+    _seekerLastDrawnPositions.removeWhere(
+      (id, _) => !stillTracked.contains(id),
     );
   }
 
@@ -892,11 +939,11 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   }
 
   int? get _otherRoleMarkerAgeSeconds {
-    if (_myPlayer?.isHider == true) {
-      final timestamp = _seekerSighting?.clientTimestamp;
-      return timestamp == null
-          ? null
-          : DateTime.now().difference(timestamp).inSeconds;
+    if (_myPlayer?.isHider == true && _seekerSightings.isNotEmpty) {
+      final newest = _seekerSightings.values
+          .map((s) => s.clientTimestamp)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      return DateTime.now().difference(newest).inSeconds;
     }
     if (_myPlayer?.isSeeker == true && _sightings.isNotEmpty) {
       final newest = _sightings

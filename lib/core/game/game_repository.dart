@@ -465,19 +465,19 @@ class GameRepository {
     }
   }
 
-  Future<SeekerSighting?> fetchSeekerLocation(String gameId) async {
+  /// Every current seeker visible to a hider — usually one (Hide & Seek),
+  /// possibly several (Infected, once more than one player has role
+  /// SEEKER).
+  Future<List<SeekerSighting>> fetchSeekerLocation(String gameId) async {
     try {
       final raw = await _client.rpc(
         'fetch_seeker_location',
         params: {'p_game_id': gameId},
       );
-      final rows = raw as List<dynamic>;
-      if (rows.isEmpty) {
-        return null;
-      }
-      return SeekerSighting.fromRow(
-        Map<String, dynamic>.from(rows.first as Map),
-      );
+      return [
+        for (final row in raw as List<dynamic>)
+          SeekerSighting.fromRow(Map<String, dynamic>.from(row as Map)),
+      ];
     } on LobbyException {
       rethrow;
     } catch (error) {
