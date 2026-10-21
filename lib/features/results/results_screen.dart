@@ -8,6 +8,7 @@ import '../../core/game/game_providers.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
+import '../../models/game_config.dart';
 
 class ResultsScreen extends ConsumerStatefulWidget {
   const ResultsScreen({super.key, required this.gameId});
@@ -96,14 +97,7 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         .where((p) => p.isHider && p.status == 'ACTIVE')
         .length;
     final seekerWon = hidersRemaining == 0;
-
-    final seeker = _players.where((p) => p.isSeeker).firstOrNull;
-    final hiders = [..._players.where((p) => p.isHider)]
-      ..sort((a, b) {
-        final survivedA = _survivedSeconds(a, activeAt, endedAt);
-        final survivedB = _survivedSeconds(b, activeAt, endedAt);
-        return survivedB.compareTo(survivedA);
-      });
+    final isInfected = game.mode == GameMode.infected;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
@@ -112,7 +106,11 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
           child: Column(
             children: [
               Text(
-                seekerWon ? 'Seeker wins' : 'Hiders win',
+                isInfected
+                    ? (seekerWon
+                          ? 'Seekers infected everyone'
+                          : 'Hiders survived')
+                    : (seekerWon ? 'Seeker wins' : 'Hiders win'),
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   color: seekerWon ? NexusTheme.danger : NexusTheme.success,
                   fontWeight: FontWeight.w700,
@@ -120,43 +118,23 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                seekerWon
-                    ? 'Every hider was caught.'
-                    : 'Time ran out before all hiders were caught.',
+                isInfected
+                    ? (seekerWon
+                          ? 'No hiders remain.'
+                          : 'Time ran out before every hider was infected.')
+                    : (seekerWon
+                          ? 'Every hider was caught.'
+                          : 'Time ran out before all hiders were caught.'),
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],
           ),
         ),
         const SizedBox(height: 24),
-        if (seeker != null) ...[
-          Text('Seeker', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          _PlayerTile(
-            name: _profiles[seeker.playerId]?.displayName ?? 'Player',
-            subtitle: seekerWon ? 'Caught everyone' : 'Ran out of time',
-            icon: Icons.search,
-          ),
-          const SizedBox(height: 24),
-        ],
-        Text(
-          'Hiders (${hiders.length})',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 8),
-        for (final hider in hiders)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _PlayerTile(
-              name: _profiles[hider.playerId]?.displayName ?? 'Player',
-              subtitle: hider.caughtAt != null
-                  ? 'Caught after ${_formatDuration(_survivedSeconds(hider, activeAt, endedAt))}'
-                  : 'Survived the whole match',
-              icon: hider.caughtAt != null
-                  ? Icons.flash_on
-                  : Icons.verified_user,
-            ),
-          ),
+        if (isInfected)
+          ..._buildInfectedLists(context, seekerWon, activeAt, endedAt)
+        else
+          ..._buildHideAndSeekLists(context, seekerWon, activeAt, endedAt),
         const SizedBox(height: 24),
         FilledButton(
           onPressed: () => context.go('/'),
@@ -164,6 +142,109 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         ),
       ],
     );
+  }
+
+  List<Widget> _buildHideAndSeekLists(
+    BuildContext context,
+    bool seekerWon,
+    DateTime? activeAt,
+    DateTime endedAt,
+  ) {
+    final seeker = _players.where((p) => p.isSeeker).firstOrNull;
+    final hiders = [..._players.where((p) => p.isHider)]
+      ..sort((a, b) {
+        final survivedA = _survivedSeconds(a, activeAt, endedAt);
+        final survivedB = _survivedSeconds(b, activeAt, endedAt);
+        return survivedB.compareTo(survivedA);
+      });
+
+    return [
+      if (seeker != null) ...[
+        Text('Seeker', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        _PlayerTile(
+          name: _profiles[seeker.playerId]?.displayName ?? 'Player',
+          subtitle: seekerWon ? 'Caught everyone' : 'Ran out of time',
+          icon: Icons.search,
+        ),
+        const SizedBox(height: 24),
+      ],
+      Text(
+        'Hiders (${hiders.length})',
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      const SizedBox(height: 8),
+      for (final hider in hiders)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _PlayerTile(
+            name: _profiles[hider.playerId]?.displayName ?? 'Player',
+            subtitle: hider.caughtAt != null
+                ? 'Caught after ${_formatDuration(_survivedSeconds(hider, activeAt, endedAt))}'
+                : 'Survived the whole match',
+            icon: hider.caughtAt != null
+                ? Icons.flash_on
+                : Icons.verified_user,
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _buildInfectedLists(
+    BuildContext context,
+    bool seekerWon,
+    DateTime? activeAt,
+    DateTime endedAt,
+  ) {
+    // Original seeker (never infected, caughtAt null) first, then whoever
+    // was infected earliest.
+    final seekers = [..._players.where((p) => p.isSeeker)]
+      ..sort((a, b) {
+        if (a.caughtAt == null) {
+          return b.caughtAt == null ? 0 : -1;
+        }
+        if (b.caughtAt == null) {
+          return 1;
+        }
+        return a.caughtAt!.compareTo(b.caughtAt!);
+      });
+    final survivors = _players.where((p) => p.isHider).toList();
+
+    return [
+      Text(
+        'Seekers (${seekers.length})',
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      const SizedBox(height: 8),
+      for (final seeker in seekers)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _PlayerTile(
+            name: _profiles[seeker.playerId]?.displayName ?? 'Player',
+            subtitle: seeker.caughtAt == null
+                ? 'Original seeker'
+                : 'Infected after ${_formatDuration(_survivedSeconds(seeker, activeAt, endedAt))}',
+            icon: seeker.caughtAt == null
+                ? Icons.search
+                : Icons.coronavirus_outlined,
+          ),
+        ),
+      const SizedBox(height: 24),
+      Text(
+        'Survivors (${survivors.length})',
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      const SizedBox(height: 8),
+      for (final hider in survivors)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _PlayerTile(
+            name: _profiles[hider.playerId]?.displayName ?? 'Player',
+            subtitle: 'Survived the whole match',
+            icon: Icons.verified_user,
+          ),
+        ),
+    ];
   }
 
   int _survivedSeconds(
