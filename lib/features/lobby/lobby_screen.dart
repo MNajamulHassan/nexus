@@ -74,8 +74,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         actions: [
           IconButton(
             tooltip: 'Refresh',
-            onPressed: () =>
-                ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh(),
+            onPressed: () => ref
+                .read(lobbyControllerProvider(widget.gameId).notifier)
+                .refresh(),
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -84,8 +85,9 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => AppErrorState(
           message: error.toString(),
-          onRetry: () =>
-              ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh(),
+          onRetry: () => ref
+              .read(lobbyControllerProvider(widget.gameId).notifier)
+              .refresh(),
         ),
         data: (view) {
           final isHost = userId != null && view.snapshot.game.hostId == userId;
@@ -138,17 +140,15 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not leave. $error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not leave. $error')));
     }
   }
 
@@ -165,17 +165,15 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not start. $error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not start. $error')));
     }
   }
 
@@ -217,17 +215,15 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not cancel. $error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not cancel. $error')));
     }
   }
 
@@ -285,19 +281,34 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() => _busy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not remove player. $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not remove player. $error')),
+      );
     }
   }
+}
+
+/// Exposes the lobby's layout body for widget tests without needing the
+/// Riverpod/Supabase wiring the real screen pulls in via its controller.
+@visibleForTesting
+Widget buildLobbyBodyForTest({required LobbyView view, required bool isHost}) {
+  return _LobbyBody(
+    view: view,
+    isHost: isHost,
+    busy: false,
+    onLeave: () {},
+    onCancel: () {},
+    onStart: () {},
+    onEditSettings: () {},
+    onKick: (_) {},
+  );
 }
 
 class _LobbyBody extends StatelessWidget {
@@ -355,66 +366,72 @@ class _LobbyBody extends StatelessWidget {
       children: [
         _RealtimeBanner(status: view.realtime),
         const SizedBox(height: 16),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 3,
-              child: AppCard(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SelectableText(
-                        game.joinCode,
-                        style: NexusTheme.readout.copyWith(
-                          fontSize: 28,
-                          letterSpacing: 4,
-                          fontWeight: FontWeight.w700,
+        // IntrinsicHeight gives this Row a concrete, finite height before
+        // CrossAxisAlignment.stretch tries to apply it to both cards —
+        // without it, the Row sits in the ListView's unbounded-height
+        // context and stretch has no finite height to stretch to.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: AppCard(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          game.joinCode,
+                          style: NexusTheme.readout.copyWith(
+                            fontSize: 28,
+                            letterSpacing: 4,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Copy join code',
-                      onPressed: () async {
-                        await Clipboard.setData(
-                          ClipboardData(text: game.joinCode),
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Join code copied')),
+                      IconButton(
+                        tooltip: 'Copy join code',
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            ClipboardData(text: game.joinCode),
                           );
-                        }
-                      },
-                      icon: const Icon(Icons.copy_outlined),
-                    ),
-                  ],
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Join code copied')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.copy_outlined),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.sports_esports_outlined,
-                      color: NexusTheme.accent,
-                      size: 20,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      game.modeLabel,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ],
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.sports_esports_outlined,
+                        color: NexusTheme.accent,
+                        size: 20,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        game.modeLabel,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 24),
         _SettingsSummaryCard(
@@ -540,42 +557,57 @@ class _LobbyBody extends StatelessWidget {
             crossFadeState: snapshot.players.length >= 2
                 ? CrossFadeState.showFirst
                 : CrossFadeState.showSecond,
-            firstChild: Column(
-              children: [
-                AppBusyButton(
-                  busy: busy,
-                  onPressed: seekerReady ? onStart : null,
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.play_arrow_rounded, size: 22),
-                      SizedBox(width: 8),
-                      Text('Start Match'),
-                    ],
-                  ),
-                ),
-                if (!seekerReady) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Choose a seeker in Edit settings before starting.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ],
-            ),
-            secondChild: AppCard(
-              child: Row(
+            // AnimatedCrossFade sizes itself between the two children, which
+            // can go through layout in a context where only the Row's exact
+            // width is known, not its height — an explicit full-width
+            // wrapper on each child keeps that width concrete instead of
+            // leaving it to each child's own (differing) intrinsic logic.
+            firstChild: SizedBox(
+              width: double.infinity,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.hourglass_empty, color: NexusTheme.dimText),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Waiting for players. Need at least 2 to start.',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                  AppBusyButton(
+                    busy: busy,
+                    onPressed: seekerReady ? onStart : null,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_arrow_rounded, size: 22),
+                        SizedBox(width: 8),
+                        Text('Start Match'),
+                      ],
                     ),
                   ),
+                  if (!seekerReady) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Choose a seeker in Edit settings before starting.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                 ],
+              ),
+            ),
+            secondChild: SizedBox(
+              width: double.infinity,
+              child: AppCard(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.hourglass_empty,
+                      color: NexusTheme.dimText,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Waiting for players. Need at least 2 to start.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           )
@@ -749,13 +781,11 @@ class _SummaryRow extends StatelessWidget {
           child: Text(
             value,
             textAlign: TextAlign.end,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
           ),
         ),
       ],
     );
   }
 }
-
