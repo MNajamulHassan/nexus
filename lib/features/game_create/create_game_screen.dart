@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/theme.dart';
 import '../../core/game/game_providers.dart';
 import '../../core/maps/map_models.dart';
 import '../../core/widgets/app_busy_button.dart';
@@ -186,27 +187,43 @@ class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
             onTauntsChanged: (value) => setState(() => _tauntsEnabled = value),
           ),
           const SizedBox(height: 20),
-          const SectionHeader('Play area'),
-          OutlinedButton(
+          const SectionHeader('Play area', icon: Icons.map_outlined),
+          OutlinedButton.icon(
             onPressed: _creating ? null : _selectPlayArea,
-            child: const Text('Select play area'),
+            icon: const Icon(Icons.edit_location_alt_outlined),
+            label: const Text('Select play area'),
           ),
           const SizedBox(height: 12),
           _PlayAreaSummary(result: mapResult),
-          if (_status != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              _status!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 250),
+            crossFadeState: _status != null
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                _status ?? '',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ),
-          ],
+            secondChild: const SizedBox(width: double.infinity),
+          ),
           const SizedBox(height: 24),
           AppBusyButton(
             busy: _creating,
             onPressed: _createLobby,
-            child: const Text('Create lobby'),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.rocket_launch_outlined, size: 20),
+                SizedBox(width: 8),
+                Text('Create lobby'),
+              ],
+            ),
           ),
         ],
       ),
@@ -222,18 +239,36 @@ class _PlayAreaSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = result != null;
+    final color = selected ? NexusTheme.success : NexusTheme.dimText;
 
     return AppCard(
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(selected ? 'Play area selected' : 'No play area yet'),
-          const SizedBox(height: 8),
-          Text(
-            'Playable vertices: ${result?.playable.polygon.vertices.length ?? 0}',
+          Icon(
+            selected ? Icons.check_circle_outline : Icons.pending_outlined,
+            color: color,
           ),
-          const SizedBox(height: 4),
-          Text('Restricted zones: ${result?.restrictedZones.length ?? 0}'),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  selected ? 'Play area selected' : 'No play area yet',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Playable vertices: ${result?.playable.polygon.vertices.length ?? 0}',
+                ),
+                const SizedBox(height: 2),
+                Text('Restricted zones: ${result?.restrictedZones.length ?? 0}'),
+              ],
+            ),
+          ),
         ],
       ),
     );
