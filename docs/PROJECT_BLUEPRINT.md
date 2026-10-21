@@ -1,6 +1,6 @@
 # Project Blueprint — Real-World GPS Multiplayer Game
 
-**Working title:** Nexus / Hideout / TBD  
+**Working title:** Nexus / Hideout / TBD — shipped under the name **MANHUNT**  
 **Primary platform for MVP:** Android  
 **Future platform:** iOS  
 **Client:** Flutter / Dart  
