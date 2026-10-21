@@ -593,7 +593,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         circleColor: color.toARGB32(),
         circleOpacity: hollow ? 0 : 1,
         circleRadius: 8,
-        circleStrokeColor: hollow ? color.toARGB32() : Colors.white.toARGB32(),
+        circleStrokeColor: hollow
+            ? color.toARGB32()
+            : NexusTheme.textPrimary.toARGB32(),
         circleStrokeWidth: hollow ? 3 : 2,
       ),
     );
@@ -1074,7 +1076,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
                       child: Text(
                         _gpsDebugLine(),
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: NexusTheme.textPrimary,
                           fontSize: 11,
                         ),
                       ),
@@ -1306,14 +1308,14 @@ class _IntroTimerCard extends StatelessWidget {
           style: NexusTheme.readout.copyWith(
             fontSize: 64,
             fontWeight: FontWeight.w700,
-            color: Colors.white,
+            color: NexusTheme.textPrimary,
           ),
         ),
         const SizedBox(height: 8),
         Text(
           hidingPhase ? 'HIDING PHASE' : 'HUNT BEGINS',
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: Colors.white70,
+            color: NexusTheme.dimText,
             letterSpacing: 3,
             fontWeight: FontWeight.w600,
           ),
@@ -1362,13 +1364,13 @@ class _CatchBannerState extends State<_CatchBanner>
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.flash_on, color: Colors.white, size: 18),
+              const Icon(Icons.flash_on, color: NexusTheme.textPrimary, size: 18),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   widget.message,
                   style: const TextStyle(
-                    color: Colors.white,
+                    color: NexusTheme.textPrimary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1426,10 +1428,10 @@ class _BrandHud extends StatelessWidget {
                     : 'HUNTING · $hidersRemaining HIDING')
                 : (revealActive ? 'YOU ARE EXPOSED' : 'HIDDEN'),
         eliminated
-            ? Colors.white70
+            ? NexusTheme.dimText
             : (revealActive ? NexusTheme.danger : NexusTheme.accent),
       ),
-      _ => ('STARTING', Colors.white70),
+      _ => ('STARTING', NexusTheme.dimText),
     };
 
     final clockLabel = status == 'HIDING_PHASE'
@@ -1472,7 +1474,7 @@ class _BrandHud extends StatelessWidget {
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontSize: 9,
               letterSpacing: 1.5,
-              color: Colors.white54,
+              color: NexusTheme.dimText,
             ),
           ),
           Text(
@@ -1480,7 +1482,7 @@ class _BrandHud extends StatelessWidget {
             style: NexusTheme.readout.copyWith(
               fontSize: 22,
               fontWeight: FontWeight.w700,
-              color: Colors.white,
+              color: NexusTheme.textPrimary,
             ),
           ),
           if (status == 'ACTIVE' && myRole == 'SEEKER' && revealActive) ...[
@@ -1545,7 +1547,7 @@ class _LegendPanel extends StatelessWidget {
           icon: const Icon(
             Icons.info_outline,
             size: 16,
-            color: Colors.white70,
+            color: NexusTheme.dimText,
           ),
         ),
       );
@@ -1591,7 +1593,7 @@ class _LegendPanel extends StatelessWidget {
                 onTap: onToggle,
                 child: const Padding(
                   padding: EdgeInsets.all(2),
-                  child: Icon(Icons.close, size: 13, color: Colors.white54),
+                  child: Icon(Icons.close, size: 13, color: NexusTheme.dimText),
                 ),
               ),
             ],
@@ -1644,7 +1646,7 @@ class _LegendRow extends StatelessWidget {
                 fontSize: 10,
                 letterSpacing: 1.2,
                 fontWeight: FontWeight.w700,
-                color: Colors.white,
+                color: NexusTheme.textPrimary,
               ),
             ),
             if (sublabel != null)
@@ -1652,7 +1654,7 @@ class _LegendRow extends StatelessWidget {
                 sublabel!,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   letterSpacing: 1.2,
-                  color: Colors.white54,
+                  color: NexusTheme.dimText,
                   fontSize: 9,
                 ),
               ),
