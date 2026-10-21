@@ -41,30 +41,39 @@ class GameSettingsForm extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader('Mode', icon: Icons.sports_esports_outlined),
-        Row(
-          children: [
-            Expanded(
-              child: _ModeCard(
-                title: 'Hide & Seek',
-                subtitle: 'Hiders vs Seekers',
-                icon: Icons.visibility_off_outlined,
-                selected: mode == GameMode.hideAndSeek,
-                onTap: enabled
-                    ? () => onModeChanged(GameMode.hideAndSeek)
-                    : null,
+        // IntrinsicHeight gives the Row a concrete height before stretch is
+        // applied (same reasoning as the lobby's join-code/mode-card Row);
+        // stretch is what makes both cards match height despite their
+        // subtitles being different lengths.
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _ModeCard(
+                  title: 'Hide & Seek',
+                  subtitle: 'Hiders vs Seekers',
+                  icon: Icons.visibility_off_outlined,
+                  selected: mode == GameMode.hideAndSeek,
+                  onTap: enabled
+                      ? () => onModeChanged(GameMode.hideAndSeek)
+                      : null,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ModeCard(
-                title: 'Infected',
-                subtitle: 'Caught hiders join the seekers',
-                icon: Icons.coronavirus_outlined,
-                selected: mode == GameMode.infected,
-                onTap: enabled ? () => onModeChanged(GameMode.infected) : null,
+              const SizedBox(width: 12),
+              Expanded(
+                child: _ModeCard(
+                  title: 'Infected',
+                  subtitle: 'Caught hiders join seekers',
+                  icon: Icons.coronavirus_outlined,
+                  selected: mode == GameMode.infected,
+                  onTap: enabled
+                      ? () => onModeChanged(GameMode.infected)
+                      : null,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 20),
         const SectionHeader('Timing', icon: Icons.timer_outlined),
@@ -173,7 +182,12 @@ class _ModeCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 2),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
       ),
