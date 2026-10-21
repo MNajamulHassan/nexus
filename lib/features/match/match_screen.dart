@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' hide Size;
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../app/theme.dart';
 import '../../core/auth/auth_models.dart';
@@ -52,11 +53,16 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   Timer? _displayTicker;
   Timer? _introTimer;
   Timer? _catchBannerTimer;
+  Timer? _heartbeatTimer;
   StreamSubscription<LocationResult>? _locationSub;
   bool _navigatedAway = false;
   bool _showIntro = true;
   bool _showLegend = true;
   String? _catchBanner;
+
+  DateTime? _lastRealFixSentAt;
+  DateTime? _lastReportOkAt;
+  String? _lastReportError;
 
   static const _navIconId = 'manhunt-nav-triangle';
 
@@ -82,6 +88,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
   void dispose() {
     _stopTimers();
     _viewportController.dispose();
+    unawaited(_disableWakelock());
     super.dispose();
   }
 
@@ -94,11 +101,26 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     _introTimer = null;
     _catchBannerTimer?.cancel();
     _catchBannerTimer = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     unawaited(_locationSub?.cancel());
     _locationSub = null;
   }
 
+  Future<void> _disableWakelock() async {
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {
+      // Best-effort; nothing to surface if the platform call fails.
+    }
+  }
+
   Future<void> _bootstrap() async {
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {
+      // Best-effort; the match still works if the screen can sleep.
+    }
     try {
       final repo = ref.read(gameRepositoryProvider);
       final game = await repo.fetchGame(widget.gameId);
@@ -131,6 +153,10 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         }
       });
       _syncTimer = Timer.periodic(const Duration(seconds: 3), (_) => _tick());
+      _heartbeatTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => unawaited(_sendHeartbeat()),
+      );
       unawaited(_tick());
       _introTimer = Timer(const Duration(milliseconds: 1100), () {
         if (mounted) {
@@ -248,6 +274,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     }
     _navigatedAway = true;
     _stopTimers();
+    unawaited(_disableWakelock());
     if (mounted) {
       context.go('/results/${widget.gameId}');
     }
@@ -288,6 +315,7 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             _initialCenter ??= point;
           });
           unawaited(_showSelfMarker(location));
+          _lastRealFixSentAt = DateTime.now();
           unawaited(_reportLocation(location));
           unawaited(_drawCatchRadius());
         case LocationError(:final message):
@@ -296,13 +324,46 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     });
   }
 
+  /// Keeps the server's last-known fix fresh for a device that hasn't
+  /// moved enough to trigger a new GPS fix (distanceFilter-gated stream),
+  /// so `server_received_at` doesn't go stale just from standing still.
+  Future<void> _sendHeartbeat() async {
+    if (!mounted || _navigatedAway) {
+      return;
+    }
+    final location = _myLocation;
+    if (location == null) {
+      return;
+    }
+    final accuracy = location.accuracyMeters;
+    if (accuracy == null || accuracy > 100) {
+      return;
+    }
+    final lastReal = _lastRealFixSentAt;
+    if (lastReal != null &&
+        DateTime.now().difference(lastReal) < const Duration(seconds: 4)) {
+      return;
+    }
+    await _reportLocation(location);
+  }
+
   Future<void> _reportLocation(AppLocation location) async {
     try {
       await ref
           .read(gameRepositoryProvider)
           .reportLocation(widget.gameId, location);
-    } catch (_) {
-      // Next fix retries; a dropped update is not fatal.
+      if (mounted) {
+        setState(() {
+          _lastReportOkAt = DateTime.now();
+          _lastReportError = null;
+        });
+      }
+    } catch (error) {
+      // Next fix/heartbeat retries; a dropped update is not fatal, but it's
+      // no longer swallowed outright — the debug overlay can surface it.
+      if (mounted) {
+        setState(() => _lastReportError = '$error');
+      }
     }
   }
 
