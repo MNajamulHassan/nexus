@@ -50,6 +50,17 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       }
 
       final status = view.snapshot.game.status;
+      if ((status == 'CREATED' || status == 'LOBBY') &&
+          userId != null &&
+          !view.snapshot.players.any((p) => p.player.playerId == userId)) {
+        ref
+            .read(homeNoticeProvider.notifier)
+            .show('You were removed from the lobby.');
+        if (context.mounted) {
+          context.go('/');
+        }
+        return;
+      }
       if (status == 'FINISHED' || status == 'CLOSED') {
         if (context.mounted) {
           context.go('/results/${widget.gameId}');
