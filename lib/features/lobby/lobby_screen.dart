@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,12 +39,12 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       }
 
       if (view.cancelled) {
-        final cancelledByHost =
-            userId == null || view.snapshot.game.hostId != userId;
-        if (cancelledByHost) {
-          ref
-              .read(homeNoticeProvider.notifier)
-              .show('The host cancelled this lobby.');
+        // Whether this was the host cancelling, or me being kicked, I'm no
+        // longer the host observing my own action here — if I am the host,
+        // I already know and navigated myself away via _confirmCancel.
+        final notHost = userId == null || view.snapshot.game.hostId != userId;
+        if (notHost) {
+          unawaited(_showCancelledOrKickedNotice());
         }
         if (context.mounted) {
           context.go('/');
@@ -51,17 +53,6 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       }
 
       final status = view.snapshot.game.status;
-      if ((status == 'CREATED' || status == 'LOBBY') &&
-          userId != null &&
-          !view.snapshot.players.any((p) => p.player.playerId == userId)) {
-        ref
-            .read(homeNoticeProvider.notifier)
-            .show('You were removed from the lobby.');
-        if (context.mounted) {
-          context.go('/');
-        }
-        return;
-      }
       if (status == 'FINISHED' || status == 'CLOSED') {
         if (context.mounted) {
           context.go('/results/${widget.gameId}');
@@ -111,6 +102,27 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _showCancelledOrKickedNotice() async {
+    // Read both providers now, before navigating away: `ref` itself stops
+    // being safe to use once this widget is disposed, but the controller
+    // instance read here is a plain long-lived object independent of this
+    // widget, so calling .show() on it later (after the await, by which
+    // point we've very likely already navigated off this screen) is fine.
+    final repo = ref.read(gameRepositoryProvider);
+    final noticeController = ref.read(homeNoticeProvider.notifier);
+
+    var message = 'The host cancelled this lobby.';
+    try {
+      final kicked = await repo.wasKicked(widget.gameId);
+      if (kicked) {
+        message = 'You were removed from the lobby.';
+      }
+    } catch (_) {
+      // Fall back to the cancel message.
+    }
+    noticeController.show(message);
   }
 
   Future<void> _leave() async {
