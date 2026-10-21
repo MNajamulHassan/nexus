@@ -69,6 +69,8 @@ class _JoinGameScreenState extends ConsumerState<JoinGameScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
         children: [
+          const Icon(Icons.key_outlined, color: NexusTheme.accent, size: 32),
+          const SizedBox(height: 12),
           Text(
             'Enter the 6-character code from the host.',
             style: Theme.of(context).textTheme.bodyLarge,
@@ -78,6 +80,7 @@ class _JoinGameScreenState extends ConsumerState<JoinGameScreen> {
             controller: _code,
             enabled: !_joining,
             maxLength: 6,
+            textAlign: TextAlign.center,
             textCapitalization: TextCapitalization.characters,
             textInputAction: TextInputAction.done,
             autocorrect: false,
@@ -87,28 +90,57 @@ class _JoinGameScreenState extends ConsumerState<JoinGameScreen> {
               _UpperCaseTextFormatter(),
             ],
             style: NexusTheme.readout.copyWith(
-              letterSpacing: 4,
+              fontSize: 22,
+              letterSpacing: 6,
               fontWeight: FontWeight.w700,
             ),
             decoration: const InputDecoration(
               labelText: 'Join code',
               counterText: '',
+              prefixIcon: Icon(Icons.tag),
             ),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              _error!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 250),
+            crossFadeState: _error != null
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 18,
+                    color: NexusTheme.danger,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _error ?? '',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
+            secondChild: const SizedBox(width: double.infinity),
+          ),
           const SizedBox(height: 24),
           AppBusyButton(
             busy: _joining,
             onPressed: _join,
-            child: const Text('Join'),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.login, size: 20),
+                SizedBox(width: 8),
+                Text('Join'),
+              ],
+            ),
           ),
         ],
       ),
