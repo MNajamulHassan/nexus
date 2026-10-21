@@ -79,9 +79,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
     if (error != null) {
       return AppErrorState(
         message: error,
-        secondaryAction: OutlinedButton(
+        secondaryAction: OutlinedButton.icon(
           onPressed: () => context.go('/'),
-          child: const Text('Back to home'),
+          icon: const Icon(Icons.home_outlined),
+          label: const Text('Back to home'),
         ),
       );
     }
@@ -105,6 +106,12 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         AppCard(
           child: Column(
             children: [
+              Icon(
+                Icons.emoji_events_outlined,
+                size: 40,
+                color: seekerWon ? NexusTheme.danger : NexusTheme.success,
+              ),
+              const SizedBox(height: 8),
               Text(
                 isInfected
                     ? (seekerWon
@@ -136,9 +143,10 @@ class _ResultsScreenState extends ConsumerState<ResultsScreen> {
         else
           ..._buildHideAndSeekLists(context, seekerWon, activeAt, endedAt),
         const SizedBox(height: 24),
-        FilledButton(
+        FilledButton.icon(
           onPressed: () => context.go('/'),
-          child: const Text('Back to home'),
+          icon: const Icon(Icons.home_outlined),
+          label: const Text('Back to home'),
         ),
       ],
     );
