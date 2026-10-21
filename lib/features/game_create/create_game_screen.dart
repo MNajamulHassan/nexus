@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,6 +9,7 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/section_header.dart';
 import '../../models/game.dart';
 import '../../models/game_config.dart';
+import 'game_settings_form.dart';
 
 class CreateGameScreen extends ConsumerStatefulWidget {
   const CreateGameScreen({super.key});
@@ -174,77 +174,16 @@ class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
         children: [
-          const SectionHeader('Mode'),
-          AppCard(
-            child: SegmentedButton<GameMode>(
-              segments: [
-                for (final mode in GameMode.values)
-                  ButtonSegment(
-                    value: mode,
-                    label: Text(GameConfig.modeDisplayName(mode)),
-                  ),
-              ],
-              selected: {_mode},
-              onSelectionChanged: (selection) {
-                setState(() {
-                  _mode = selection.first;
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 20),
-          const SectionHeader('Timing'),
-          AppCard(
-            child: Column(
-              children: [
-                _NumberField(
-                  controller: _matchDuration,
-                  label: 'Match duration (seconds)',
-                ),
-                const SizedBox(height: 12),
-                _NumberField(
-                  controller: _hidingDuration,
-                  label: 'Hiding duration (seconds)',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const SectionHeader('Catch radius'),
-          AppCard(
-            child: _NumberField(
-              controller: _catchRadius,
-              label: 'Catch radius (meters)',
-              signed: false,
-              decimal: true,
-            ),
-          ),
-          const SizedBox(height: 20),
-          const SectionHeader('Reveal windows'),
-          AppCard(
-            child: Column(
-              children: [
-                _NumberField(
-                  controller: _revealInterval,
-                  label: 'Reveal interval (seconds)',
-                ),
-                const SizedBox(height: 12),
-                _NumberField(
-                  controller: _revealDuration,
-                  label: 'Reveal duration (seconds)',
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Taunts enabled'),
-                  value: _tauntsEnabled,
-                  onChanged: (value) {
-                    setState(() {
-                      _tauntsEnabled = value;
-                    });
-                  },
-                ),
-              ],
-            ),
+          GameSettingsForm(
+            mode: _mode,
+            onModeChanged: (mode) => setState(() => _mode = mode),
+            matchDurationController: _matchDuration,
+            hidingDurationController: _hidingDuration,
+            catchRadiusController: _catchRadius,
+            revealIntervalController: _revealInterval,
+            revealDurationController: _revealDuration,
+            tauntsEnabled: _tauntsEnabled,
+            onTauntsChanged: (value) => setState(() => _tauntsEnabled = value),
           ),
           const SizedBox(height: 20),
           const SectionHeader('Play area'),
@@ -271,37 +210,6 @@ class _CreateGameScreenState extends ConsumerState<CreateGameScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _NumberField extends StatelessWidget {
-  const _NumberField({
-    required this.controller,
-    required this.label,
-    this.signed = false,
-    this.decimal = false,
-  });
-
-  final TextEditingController controller;
-  final String label;
-  final bool signed;
-  final bool decimal;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      keyboardType: TextInputType.numberWithOptions(
-        signed: signed,
-        decimal: decimal,
-      ),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(
-          decimal ? RegExp(r'[0-9.]') : RegExp(r'[0-9]'),
-        ),
-      ],
-      decoration: InputDecoration(labelText: label),
     );
   }
 }

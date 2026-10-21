@@ -11,6 +11,7 @@ import '../../core/widgets/app_busy_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_error_state.dart';
 import '../../models/game.dart';
+import 'edit_settings_sheet.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
   const LobbyScreen({super.key, required this.gameId});
@@ -104,6 +105,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
             onLeave: _busy ? null : () => _leave(),
             onCancel: _busy ? null : () => _confirmCancel(),
             onStart: _busy ? null : () => _start(),
+            onEditSettings: _busy ? null : () => _openEditSettings(view),
+            onKick: _busy ? null : (player) => _confirmKick(player),
           );
         },
       ),
@@ -215,6 +218,74 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen> {
       ).showSnackBar(SnackBar(content: Text('Could not cancel. $error')));
     }
   }
+
+  Future<void> _openEditSettings(LobbyView view) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => EditSettingsSheet(
+        gameId: widget.gameId,
+        game: view.snapshot.game,
+        players: view.snapshot.players,
+      ),
+    );
+  }
+
+  Future<void> _confirmKick(LobbyPlayer player) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Remove player?'),
+          content: Text(
+            'Remove ${player.displayName} from this lobby? They cannot '
+            'rejoin with the same code.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Keep player'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(gameRepositoryProvider)
+          .kickPlayer(widget.gameId, player.player.playerId);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      await ref.read(lobbyControllerProvider(widget.gameId).notifier).refresh();
+    } on LobbyException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not remove player. $error')));
+    }
+  }
 }
 
 class _LobbyBody extends StatelessWidget {
@@ -225,6 +296,8 @@ class _LobbyBody extends StatelessWidget {
     required this.onLeave,
     required this.onCancel,
     required this.onStart,
+    required this.onEditSettings,
+    required this.onKick,
   });
 
   final LobbyView view;
@@ -233,11 +306,25 @@ class _LobbyBody extends StatelessWidget {
   final VoidCallback? onLeave;
   final VoidCallback? onCancel;
   final VoidCallback? onStart;
+  final VoidCallback? onEditSettings;
+  final void Function(LobbyPlayer player)? onKick;
 
   @override
   Widget build(BuildContext context) {
     final snapshot = view.snapshot;
     final game = snapshot.game;
+    String? seekerName;
+    if (game.seekerIsManual) {
+      for (final player in snapshot.players) {
+        if (player.player.playerId == game.seekerPlayerId) {
+          seekerName = player.displayName;
+          break;
+        }
+      }
+    }
+    final seekerReady =
+        !game.seekerIsManual ||
+        snapshot.players.any((p) => p.player.playerId == game.seekerPlayerId);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
@@ -305,8 +392,21 @@ class _LobbyBody extends StatelessWidget {
               label: 'Taunts',
               value: game.tauntsEnabled ? 'Enabled' : 'Disabled',
             ),
+            _SummaryRow(
+              label: 'Seeker',
+              value: game.seekerIsManual
+                  ? (seekerName ?? 'Choose player (not chosen)')
+                  : 'Random',
+            ),
           ],
         ),
+        if (isHost) ...[
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: onEditSettings,
+            child: const Text('Edit settings'),
+          ),
+        ],
         const SizedBox(height: 24),
         Text(
           'Players (${snapshot.players.length})',
@@ -323,6 +423,13 @@ class _LobbyBody extends StatelessWidget {
                   ? 'Host · ${player.player.status}'
                   : player.player.status,
             ),
+            trailing: isHost && !player.isHost
+                ? IconButton(
+                    tooltip: 'Remove player',
+                    onPressed: onKick == null ? null : () => onKick!(player),
+                    icon: const Icon(Icons.person_remove_outlined),
+                  )
+                : null,
           ),
         const SizedBox(height: 16),
         Text(
@@ -333,13 +440,22 @@ class _LobbyBody extends StatelessWidget {
         if (isHost) ...[
           AppBusyButton(
             busy: busy,
-            onPressed: snapshot.players.length >= 2 ? onStart : null,
+            onPressed: snapshot.players.length >= 2 && seekerReady
+                ? onStart
+                : null,
             child: const Text('Start Match'),
           ),
           if (snapshot.players.length < 2) ...[
             const SizedBox(height: 8),
             Text(
               'Need at least 2 players to start.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (!seekerReady) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Choose a seeker in Edit settings before starting.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],

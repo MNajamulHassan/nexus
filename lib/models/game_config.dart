@@ -88,6 +88,38 @@ class GameConfig {
     required MapPolygon? playablePolygon,
     required List<MapPolygon> restrictedPolygons,
   }) {
+    final settingsError = validateSettings(
+      mode: mode,
+      matchDurationSeconds: matchDurationSeconds,
+      hidingDurationSeconds: hidingDurationSeconds,
+      catchRadiusMeters: catchRadiusMeters,
+      revealIntervalSeconds: revealIntervalSeconds,
+      revealDurationSeconds: revealDurationSeconds,
+    );
+    if (settingsError != null) {
+      return settingsError;
+    }
+
+    if (playablePolygon == null) {
+      return 'Select a play area before creating a lobby.';
+    }
+
+    return PolygonService.validateForConfirm(
+      playable: playablePolygon,
+      restrictedZones: restrictedPolygons,
+    );
+  }
+
+  /// The non-zone subset of [validate] — mode/timing/catch-radius checks
+  /// shared with the lobby's Edit Settings sheet, which never touches zones.
+  static String? validateSettings({
+    required GameMode mode,
+    required int? matchDurationSeconds,
+    required int? hidingDurationSeconds,
+    required double? catchRadiusMeters,
+    required int? revealIntervalSeconds,
+    required int? revealDurationSeconds,
+  }) {
     if (!GameMode.values.contains(mode)) {
       return 'Choose Hide & Seek or Infected.';
     }
@@ -128,22 +160,7 @@ class GameConfig {
       return revealIntervalError;
     }
 
-    final revealDurationError = _positiveTiming(
-      revealDurationSeconds,
-      'Reveal duration',
-    );
-    if (revealDurationError != null) {
-      return revealDurationError;
-    }
-
-    if (playablePolygon == null) {
-      return 'Select a play area before creating a lobby.';
-    }
-
-    return PolygonService.validateForConfirm(
-      playable: playablePolygon,
-      restrictedZones: restrictedPolygons,
-    );
+    return _positiveTiming(revealDurationSeconds, 'Reveal duration');
   }
 
   static String? _positiveTiming(int? seconds, String label) {
