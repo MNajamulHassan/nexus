@@ -450,6 +450,14 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     // neither.
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     await map.compass.updateSettings(CompassSettings(enabled: false));
+    // Required attribution — never disable it — just lifted clear of the
+    // bottom-left reset-north button instead of sitting underneath it.
+    await map.attribution.updateSettings(
+      AttributionSettings(marginLeft: 16, marginBottom: 88),
+    );
+    await map.logo.updateSettings(
+      LogoSettings(marginLeft: 16, marginBottom: 88),
+    );
     await _registerNavIcon(map);
 
     _polygonManager = await map.annotations.createPolygonAnnotationManager();
@@ -517,20 +525,20 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
         PolygonService.closedRing(vertices),
       );
 
-      // Restricted zones get a solid fill; the playable boundary is an
-      // outline only, matching a tactical-ops map rather than a flat shape.
-      if (!isPlayable) {
-        final fill = PolygonService.toPolygon(vertices);
-        if (fill != null) {
-          await polygons.create(
-            PolygonAnnotationOptions(
-              geometry: fill,
-              fillColor: color.toARGB32(),
-              fillOpacity: 0.3,
-              fillOutlineColor: color.toARGB32(),
-            ),
-          );
-        }
+      // Restricted zones get a solid fill. The playable area gets only a
+      // faint tint (its boundary is the outline below) — a flat full-
+      // opacity fill would read as a solid shape rather than a tactical
+      // play-area outline.
+      final fill = PolygonService.toPolygon(vertices);
+      if (fill != null) {
+        await polygons.create(
+          PolygonAnnotationOptions(
+            geometry: fill,
+            fillColor: color.toARGB32(),
+            fillOpacity: isPlayable ? 0.05 : 0.3,
+            fillOutlineColor: color.toARGB32(),
+          ),
+        );
       }
 
       if (outline != null) {
@@ -645,9 +653,9 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
     _selfLastDrawnPosition = point;
     await glowManager.deleteAll();
     await iconManager.deleteAll();
-    final color = _myPlayer?.isSeeker == true
-        ? NexusTheme.danger
-        : NexusTheme.accent;
+    // Your own marker is always cyan, regardless of role — only other
+    // seekers (never you) are drawn as the red threat marker.
+    const color = NexusTheme.accent;
     await _createNavMarker(
       glowManager,
       iconManager,
@@ -1087,13 +1095,46 @@ class _MatchScreenState extends ConsumerState<MatchScreen> {
             ),
           ),
         ),
-        if (_catchBanner != null)
-          Positioned(
-            top: insets.top + 90,
-            left: 12,
-            right: 12,
-            child: _CatchBanner(key: ValueKey(_catchBanner), message: _catchBanner!),
+        Positioned(
+          top: insets.top + 90,
+          left: 12,
+          right: 12,
+          child: IgnorePointer(
+            ignoring: _catchBanner == null,
+            child: AnimatedOpacity(
+              opacity: _catchBanner != null ? 1 : 0,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child: AppCard(
+                color: NexusTheme.danger.withValues(alpha: 0.92),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.flash_on,
+                      color: NexusTheme.textPrimary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        _catchBanner ?? '',
+                        style: const TextStyle(
+                          color: NexusTheme.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
+        ),
         if (_catchCandidates.isNotEmpty)
           Positioned(
             left: 12,
@@ -1194,6 +1235,7 @@ class _HoldToCatchButtonState extends State<_HoldToCatchButton>
     duration: const Duration(seconds: 5),
   )..addStatusListener(_onStatus);
   bool _busy = false;
+  bool _holding = false;
 
   @override
   void dispose() {
@@ -1205,6 +1247,7 @@ class _HoldToCatchButtonState extends State<_HoldToCatchButton>
     if (_busy) {
       return;
     }
+    setState(() => _holding = true);
     _controller.forward(from: 0);
   }
 
@@ -1212,6 +1255,7 @@ class _HoldToCatchButtonState extends State<_HoldToCatchButton>
     if (_busy) {
       return;
     }
+    setState(() => _holding = false);
     _controller.reverse();
   }
 
@@ -1230,7 +1274,10 @@ class _HoldToCatchButtonState extends State<_HoldToCatchButton>
       }
     } finally {
       if (mounted) {
-        setState(() => _busy = false);
+        setState(() {
+          _busy = false;
+          _holding = false;
+        });
         _controller.value = 0;
       }
     }
@@ -1242,8 +1289,18 @@ class _HoldToCatchButtonState extends State<_HoldToCatchButton>
       onLongPressStart: (_) => _start(),
       onLongPressEnd: (_) => _cancel(),
       onLongPressCancel: _cancel,
-      child: AppCard(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: NexusTheme.surface,
+          borderRadius: BorderRadius.circular(NexusTheme.cardRadius),
+          border: Border.all(
+            color: _holding ? NexusTheme.danger : NexusTheme.hairline,
+            width: _holding ? 1.5 : 1,
+          ),
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1325,64 +1382,6 @@ class _IntroTimerCard extends StatelessWidget {
   }
 }
 
-/// Transient banner animated in when a hider gets caught.
-class _CatchBanner extends StatefulWidget {
-  const _CatchBanner({super.key, required this.message});
-
-  final String message;
-
-  @override
-  State<_CatchBanner> createState() => _CatchBannerState();
-}
-
-class _CatchBannerState extends State<_CatchBanner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  )..forward();
-  late final Animation<Offset> _slide = Tween<Offset>(
-    begin: const Offset(0, -0.4),
-    end: Offset.zero,
-  ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _controller,
-      child: SlideTransition(
-        position: _slide,
-        child: AppCard(
-          color: NexusTheme.danger.withValues(alpha: 0.92),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.flash_on, color: NexusTheme.textPrimary, size: 18),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  widget.message,
-                  style: const TextStyle(
-                    color: NexusTheme.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Small round button that shows/hides the legend panel — it stays visible
 /// so the legend is never permanently lost.
 /// Tactical-ops style HUD: brand mark, a short status line, and a large
@@ -1439,7 +1438,7 @@ class _BrandHud extends StatelessWidget {
         : 'MATCH ENDS IN';
 
     return AppCard(
-      color: NexusTheme.surface.withValues(alpha: 0.9),
+      color: NexusTheme.glassSurface,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1480,9 +1479,9 @@ class _BrandHud extends StatelessWidget {
           Text(
             _formatClock(secondsRemaining),
             style: NexusTheme.readout.copyWith(
-              fontSize: 22,
+              fontSize: 26,
               fontWeight: FontWeight.w700,
-              color: NexusTheme.textPrimary,
+              color: NexusTheme.accent,
             ),
           ),
           if (status == 'ACTIVE' && myRole == 'SEEKER' && revealActive) ...[
@@ -1535,25 +1534,9 @@ class _LegendPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!shown) {
-      return Material(
-        color: NexusTheme.surface.withValues(alpha: 0.9),
-        shape: const CircleBorder(),
-        child: IconButton(
-          onPressed: onToggle,
-          tooltip: 'Show legend',
-          padding: const EdgeInsets.all(8),
-          constraints: const BoxConstraints(),
-          icon: const Icon(
-            Icons.info_outline,
-            size: 16,
-            color: NexusTheme.dimText,
-          ),
-        ),
-      );
-    }
-
-    final youColor = myRole == 'SEEKER' ? NexusTheme.danger : NexusTheme.accent;
+    // YOU is always the cyan arrow, matching the always-cyan self marker on
+    // the map — only other seekers are drawn as the red threat triangle.
+    const youColor = NexusTheme.accent;
     final youRoleLabel = switch (myRole) {
       'SEEKER' => 'SEEKER',
       'HIDER' => 'HIDER',
@@ -1570,8 +1553,15 @@ class _LegendPanel extends StatelessWidget {
             label: 'SEEKER',
           );
 
-    return AppCard(
-      color: NexusTheme.surface.withValues(alpha: 0.9),
+    final collapsedIcon = IconButton(
+      onPressed: onToggle,
+      tooltip: 'Show legend',
+      padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(),
+      icon: const Icon(Icons.info_outline, size: 16, color: NexusTheme.dimText),
+    );
+
+    final panel = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1609,7 +1599,7 @@ class _LegendPanel extends StatelessWidget {
           const SizedBox(height: 6),
           _LegendRow(
             swatch: _LegendOutlineSquare(color: NexusTheme.accent),
-            label: 'PLAYABLE',
+            label: 'PLAYABLE AREA',
           ),
           const SizedBox(height: 6),
           _LegendRow(
@@ -1617,6 +1607,27 @@ class _LegendPanel extends StatelessWidget {
             label: 'RESTRICTED',
           ),
         ],
+      ),
+    );
+
+    // AnimatedContainer eases the background shape between the collapsed
+    // round button and the full card; AnimatedCrossFade (which handles its
+    // own size interpolation between the two very differently sized
+    // children) swaps the actual content.
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      decoration: BoxDecoration(
+        color: NexusTheme.glassSurface,
+        borderRadius: BorderRadius.circular(shown ? NexusTheme.cardRadius : 18),
+      ),
+      child: AnimatedCrossFade(
+        duration: const Duration(milliseconds: 200),
+        crossFadeState: shown
+            ? CrossFadeState.showSecond
+            : CrossFadeState.showFirst,
+        firstChild: collapsedIcon,
+        secondChild: panel,
       ),
     );
   }
@@ -1752,7 +1763,7 @@ class _GlassSquareButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: NexusTheme.surface.withValues(alpha: 0.9),
+      color: NexusTheme.glassSurface,
       borderRadius: BorderRadius.circular(16),
       child: IconButton(
         onPressed: onPressed,
@@ -1773,7 +1784,7 @@ class _ZoomPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: NexusTheme.surface.withValues(alpha: 0.9),
+      color: NexusTheme.glassSurface,
       borderRadius: BorderRadius.circular(16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
